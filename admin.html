@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>어랍쇼 · 공동운영 관리</title>
+  <style>
+    :root{--green:#176456;--ink:#26333d;--muted:#5d6a72;--line:#dce5df;--bg:#f5f7f5;--bad:#a63838}
+    *{box-sizing:border-box}body{margin:0;font:16px/1.55 "Malgun Gothic","맑은 고딕",sans-serif;background:var(--bg);color:var(--ink)}
+    button,input,select,textarea{font:inherit}a{color:var(--green)}button{cursor:pointer}button:disabled{opacity:.55;cursor:wait}
+    header{background:#fff;border-bottom:1px solid var(--line);padding:18px max(20px,calc((100vw - 1220px)/2))}
+    .head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.brand{font-size:22px;font-weight:800;color:var(--green);text-decoration:none}
+    .brand small{display:block;font-size:13px;font-weight:400;color:var(--muted)}.shell{max-width:1220px;margin:auto;padding:30px 20px 70px}
+    h1{font-size:30px;margin:0 0 6px}h2{font-size:21px;margin:0 0 14px}p{margin:7px 0 16px}.muted{color:var(--muted)}
+    .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px;margin:18px 0;box-shadow:0 4px 20px #164e4708}
+    .auth{max-width:520px;margin:55px auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+    .field{display:grid;gap:6px;margin:12px 0}.field span{font-weight:600;font-size:14px}.field input,.field select,.field textarea,select{width:100%;min-height:42px;padding:9px 11px;border:1px solid #aebfb5;border-radius:8px;background:#fff;color:var(--ink)}
+    .field textarea{min-height:80px;resize:vertical}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.btn{border:1px solid #aebfb5;border-radius:8px;background:#fff;color:var(--ink);padding:9px 14px;text-decoration:none;font-weight:600;min-height:42px}
+    .btn.primary{background:var(--green);border-color:var(--green);color:#fff}.btn.ghost{border-color:transparent;color:var(--green)}
+    .tabs{display:flex;gap:7px;flex-wrap:wrap;margin:22px 0}.tabs button[aria-selected="true"]{background:var(--green);border-color:var(--green);color:#fff}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:19px}.stat strong{display:block;font-size:29px;color:var(--green)}
+    .scroll{overflow:auto}.scroll table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid var(--line);padding:12px 9px;text-align:left;vertical-align:middle}th{white-space:nowrap;background:#f5f9f6;font-size:14px}td{font-size:14px}
+    .scroll select{min-width:110px;font-size:14px}.scroll .btn{min-height:36px;padding:5px 10px}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    dialog{border:0;border-radius:14px;padding:24px;width:min(650px,calc(100vw - 28px));max-height:92vh;overflow:auto;box-shadow:0 24px 80px #1118}dialog::backdrop{background:#172a2977}
+    #message{position:sticky;top:0;z-index:2;padding:11px 16px;border-radius:8px;background:#e4f3e9;color:#194d38;margin-bottom:14px}
+    #message.error{background:#fceaea;color:var(--bad)}.error-text{color:var(--bad)}.hidden{display:none!important}
+    .note{border-left:4px solid var(--green);padding:10px 15px;background:#eaf3ee}.nowrap{white-space:nowrap}
+    :focus-visible{outline:3px solid #f6c748;outline-offset:2px}@media(max-width:640px){h1{font-size:25px}.shell{padding:18px 13px 55px}.card{padding:17px}}
+  </style>
+  <script src="supabase-config.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2"></script>
+  <script defer src="admin.js"></script>
+</head>
+<body>
+  <header><div class="head"><a class="brand" href="./index.html">어랍쇼<small>청소년기관 현장실습 · 공동운영</small></a>
+    <div class="row"><a class="btn" href="./index.html">안내서 보기</a><span id="identity" class="muted"></span><button id="logout" class="btn hidden" type="button">로그아웃</button></div>
+  </div></header>
+  <main class="shell">
+    <div id="message" class="hidden" role="status"></div>
+    <section id="setup" class="card auth hidden"><h1>운영 설정 중</h1><p>담당자 관리 서버 연결이 아직 설정되지 않았습니다. 운영자에게 문의해 주세요.</p></section>
+    <section id="login" class="card auth hidden" aria-labelledby="login-title">
+      <h1 id="login-title">담당자 로그인</h1><p class="muted">@bwyf.or.kr 기관 업무용 이메일로 로그인합니다. 신규 계정은 이메일 확인 후 관리자 승인이 필요합니다.</p>
+      <form id="login-form">
+        <label class="field"><span>업무용 이메일</span><input id="email" type="email" autocomplete="username" required maxlength="254"></label>
+        <label class="field"><span>비밀번호</span><input id="password" type="password" autocomplete="current-password" required minlength="12"></label>
+        <p class="muted">계정 신청 시 12자 이상이며 영문 대·소문자, 숫자, 기호를 모두 포함해야 합니다.</p>
+        <div class="row"><button class="btn primary" type="submit">로그인</button><button class="btn ghost" type="button" id="signup">계정 신청</button><button class="btn ghost" type="button" id="reset">비밀번호 재설정</button></div>
+      </form>
+    </section>
+    <section id="pending" class="card auth hidden"><h1>승인 대기</h1><p id="pending-text"></p><p class="muted">이메일 확인과 담당자 승인이 완료되면 접속할 수 있습니다.</p></section>
+    <section id="app" class="hidden" aria-labelledby="app-title">
+      <h1 id="app-title">공동운영 대시보드</h1><p id="role-info" class="muted"></p>
+      <div class="note">실습생 주민등록번호·민감정보·평가 원문은 입력하지 마세요. 기관과 권한에 따라 서버에서 접근을 제한합니다.</div>
+      <nav class="tabs" aria-label="담당자 관리 메뉴" id="tabs"></nav>
+      <div class="toolbar"><label class="field"><span>조회 기관</span><select id="center-filter"></select></label><button id="export" class="btn" type="button">현재 조건 전체 CSV 저장</button></div>
+      <div id="content"></div>
+    </section>
+  </main>
+  <dialog id="editor" aria-labelledby="editor-title"><div class="toolbar"><h2 id="editor-title"></h2><button class="btn" type="button" id="close-editor">닫기</button></div><form id="editor-form"></form></dialog>
+</body>
+</html>
