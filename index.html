@@ -114,6 +114,43 @@ const practiceCourses=[
 {id:'report-session',area:'가치',title:'실습보고회 및 평가',subtitle:'배움과 변화의 공유',kind:'기관별',type:'발표·성찰',owner:'기관장·관리자·지도자',summary:'결과 나열보다 무엇을 보고·배우고·어떻게 달라졌는지를 중심으로 실습경험을 공유합니다.',activity:'최종 실습발표 및 동료 피드백',materials:'실습보고서, 발표자료, 평가표'}
 ];
 
+
+const practiceStaffTypeLabels={
+  practice_lead:"실습총괄",manager:"관리자",program_staff:"사업담당자",admin_staff:"행정담당자",
+  specialist:"전문분야 담당자",hr_staff:"인사·채용 담당자",practice_supervisor:"실습지도자",external_expert:"외부전문가"
+};
+function practiceStaffTypes(c){
+  const m={
+    orientation:["practice_lead","manager"],communication:["practice_supervisor"],
+    policy:["program_staff","manager"],"policy-analysis":["program_staff","manager"],
+    "guidance-1":["program_staff"],"guidance-2":["program_staff"],
+    "activity-wood":["specialist"],"activity-digital":["specialist"],
+    "program-plan":["program_staff"],promotion:["program_staff"],certification:["program_staff"],evaluation:["program_staff","manager"],
+    "admin-doc":["admin_staff"],budget:["admin_staff"],report:["admin_staff","manager"],issue:["program_staff"],
+    equipment:["specialist"],"institution-analysis":["manager"],visit:["practice_supervisor","program_staff"],
+    meeting:["manager","practice_supervisor"],fieldwork:["program_staff"],
+    role:["practice_supervisor","manager"],career:["hr_staff","manager"],
+    "mid-1":["practice_supervisor","practice_lead"],"mid-2":["practice_supervisor","practice_lead"],
+    final:["practice_supervisor","practice_lead"],"report-session":["manager","practice_supervisor"]
+  };
+  return m[c.id]||["program_staff"];
+}
+function practiceSpecialties(c){
+  const m={
+    orientation:["기관운영","실습운영"],communication:["실습지도","관계형성"],policy:["청소년정책","기획"],
+    "policy-analysis":["청소년정책","정책분석"],"guidance-1":["참여·자치"],"guidance-2":["방과후아카데미"],
+    "activity-wood":["목공·가죽"],"activity-digital":["3D·드론"],"program-plan":["프로그램기획"],
+    promotion:["홍보·모집"],certification:["인증제"],evaluation:["성과평가"],"admin-doc":["공문서","문서관리"],
+    budget:["예산·회계"],report:["보고서작성"],issue:["지역사회","퍼실리테이션"],equipment:["기자재","안전"],
+    "institution-analysis":["기관운영","기획"],visit:["기관분석","현장학습"],meeting:["조직운영","회의"],
+    fieldwork:["현장사업 운영"],role:["직업윤리","슈퍼비전"],career:["인사·채용","면접"],
+    "mid-1":["평가","슈퍼비전"],"mid-2":["평가","진로"],final:["종결평가","슈퍼비전"],"report-session":["발표","성찰"]
+  };
+  return m[c.id]||[];
+}
+function practiceStaffTypeText(c){return practiceStaffTypes(c).map(x=>practiceStaffTypeLabels[x]||x).join(" / ")}
+function practiceSpecialtyText(c){return practiceSpecialties(c).join(", ")}
+
 function practicePrompt(course){
 return `당신은 청소년기관 현장실습 교육과정을 설계하는 교육기획 전문가이자 청소년지도사 현장실습 슈퍼바이저입니다.
 
@@ -122,7 +159,9 @@ return `당신은 청소년기관 현장실습 교육과정을 설계하는 교�
 교육영역: ${course.area}
 교육대상: 청소년지도사 2급 자격과정 현장실습생
 권장 교육방식: ${course.type}
-권장 담당자 유형: ${course.owner}
+권장 담당자 유형: ${practiceStaffTypeText(course)}
+필수·우선 전문분야: ${practiceSpecialtyText(course)}
+현장 참고: ${course.owner}
 기관 특성: [기관의 주요 기능 및 특성화사업 입력]
 교육시간: [배정시간 입력]
 교육인원: [인원 입력]
@@ -136,7 +175,7 @@ return `당신은 청소년기관 현장실습 교육과정을 설계하는 교�
 
 [반드시 작성할 결과물]
 1. 교육목표 3~5개
-2. 적정 강의담당자: 권장 직무·업무경험·전문성·경력수준·단독/공동강의 여부
+2. 적정 강의담당자: 담당자 유형·전문분야·총 근무경력·청소년분야 근무경력·현 기관 근무경력·관련업무 담당경력·최근 담당시기·강의경험·단독/공동강의 여부. 총 경력보다 관련업무 담당경력을 우선하여 판단할 것
 3. 권장 교육방식과 선정 이유
 4. 시간별 운영안: 시간 / 단계 / 내용 / 진행방법 / 담당자 역할 / 실습생 활동 / 준비물
 5. PPT 강의안: 슬라이드 번호 / 제목 / 핵심내용 / 현장사례 / 추천 시각자료 / 발표자 노트
@@ -156,7 +195,7 @@ ${course.summary}
 }
 
 function practiceCard(c){
-return `<article class="practice-card"><div class="practice-top"><div><span class="practice-area ${c.area}">${c.area}</span> <span class="practice-kind">${esc(c.kind)}</span><h3>${esc(c.title)}</h3><p>${esc(c.subtitle)}</p></div></div><p>${esc(c.summary)}</p><div class="practice-meta"><span>권장 방식<br><b>${esc(c.type)}</b></span><span>담당자 유형<br><b>${esc(c.owner)}</b></span></div><div class="actions"><button class="btn primary" data-course="${c.id}">과목 준비하기 →</button></div></article>`;
+return `<article class="practice-card"><div class="practice-top"><div><span class="practice-area ${c.area}">${c.area}</span> <span class="practice-kind">${esc(c.kind)}</span><h3>${esc(c.title)}</h3><p>${esc(c.subtitle)}</p></div></div><p>${esc(c.summary)}</p><div class="practice-meta"><span>권장 방식<br><b>${esc(c.type)}</b></span><span>담당자 유형<br><b>${esc(practiceStaffTypeText(c))}</b></span><span>전문분야<br><b>${esc(practiceSpecialtyText(c))}</b></span><span>경력 우선순위<br><b>관련업무 담당경력 우선</b></span></div><div class="actions"><button class="btn primary" data-course="${c.id}">과목 준비하기 →</button></div></article>`;
 }
 
 function practice(){
@@ -178,7 +217,7 @@ showDialog(dialogHead(c.title)+`<p class="hint"><span class="practice-area ${c.a
 <p>${esc(c.summary)}</p>
 <div class="practice-detail-grid">
 <div class="practice-detail"><h3>강의 개요</h3><ul><li>권장 진행방식: ${esc(c.type)}</li><li>권장 담당자: ${esc(c.owner)}</li><li>전체 현장실습 과정과 연결해 현장사례 중심으로 운영</li></ul></div>
-<div class="practice-detail"><h3>담당자 지정 기준</h3><ul><li>직급보다 관련 업무경험과 실제 전문성 우선</li><li>실제 사례와 문서를 설명할 수 있는 직원 우선</li><li>필요 시 관리자+실무자 공동강의 권장</li></ul></div>
+<div class="practice-detail"><h3>담당자 지정 기준</h3><ul><li>담당자 유형: ${esc(practiceStaffTypeText(c))}</li><li>전문분야: ${esc(practiceSpecialtyText(c))}</li><li>우선순위: 관련업무 담당경력 → 전문분야 적합성 → 최근 담당시기 → 실제 사례 보유 → 강의경험 → 총 근무경력</li><li>필요 시 관리자+실무자 공동강의 권장</li></ul></div>
 <div class="practice-detail"><h3>실습생 활동</h3><p>${esc(c.activity)}</p></div>
 <div class="practice-detail"><h3>준비자료</h3><p>${esc(c.materials)}</p></div>
 <div class="practice-detail"><h3>PPT 구성 원칙</h3><ul><li>왜 필요한가 → 핵심개념 → 실제 기관 사례</li><li>잘된 사례·어려웠던 사례 → 참여활동</li><li>현장 주의점 → 성찰질문 → 핵심 메시지</li></ul></div>
