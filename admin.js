@@ -247,10 +247,264 @@
       return [c.name,cell,save];
     });
   }
+  const manualAllowedTags=[
+    "p","br","strong","b","em","i","u","s","h2","h3","h4","ul","ol","li",
+    "blockquote","a","table","thead","tbody","tfoot","tr","th","td","span"
+  ];
+  const manualAllowedAttrs=["href","target","rel","class","colspan","rowspan","scope"];
+  const manualAllowedClasses=new Set([
+    "text-small","text-large","text-xlarge",
+    "align-center","align-right","align-justify","manual-table"
+  ]);
+  function normalizeManualSpan(value){
+    const number=Number.parseInt(value,10);
+    return Number.isInteger(number)&&number>=1&&number<=10?String(number):"";
+  }
+  function manualSanitize(value){
+    if(!window.DOMPurify)throw Error("문서 보안 편집기를 불러오지 못했습니다. 페이지를 새로고침해 주세요.");
+    const clean=window.DOMPurify.sanitize(String(value||""),{
+      ALLOWED_TAGS:manualAllowedTags,ALLOWED_ATTR:manualAllowedAttrs,
+      ALLOW_ARIA_ATTR:false,ALLOW_DATA_ATTR:false,KEEP_CONTENT:true,
+      FORBID_TAGS:["script","style","iframe","object","embed","form","input","button","textarea","select","option","svg","math","meta","link","base"],
+      FORBID_ATTR:["style","src","srcset","id","name","form","formaction","srcdoc"]
+    });
+    const box=el("div");box.innerHTML=clean;
+    box.querySelectorAll("*").forEach(node=>{
+      if(node.hasAttribute("class")){
+        const classes=[...node.classList].filter(name=>manualAllowedClasses.has(name));
+        if(classes.length)node.className=classes.join(" ");else node.removeAttribute("class");
+      }
+      if(node.matches("td,th")){
+        for(const attr of ["colspan","rowspan"]){
+          const normalized=normalizeManualSpan(node.getAttribute(attr));
+          if(normalized)node.setAttribute(attr,normalized);else node.removeAttribute(attr);
+        }
+      }
+      if(node.matches("th")&&!["row","col"].includes(node.getAttribute("scope")))node.removeAttribute("scope");
+      if(node.matches("a")){
+        const href=(node.getAttribute("href")||"").trim();
+        if(!/^(https?:\/\/|mailto:|#|\/|\.\.?\/)/i.test(href)){
+          node.removeAttribute("href");node.removeAttribute("target");node.removeAttribute("rel");
+        }else if(/^https?:\/\//i.test(href)){
+          node.setAttribute("target","_blank");node.setAttribute("rel","noopener noreferrer");
+        }else{
+          node.removeAttribute("target");node.removeAttribute("rel");
+        }
+      }
+    });
+    box.querySelectorAll("table").forEach(table=>table.classList.add("manual-table"));
+    return box.innerHTML.trim();
+  }
+  function manualPlainToHtml(value){
+    const text=String(value||"").replace(/\r/g,"").trim();
+    if(!text)return "<p><br></p>";
+    return text.split(/\n{2,}/).map(part=>{
+      const paragraph=el("p");
+      part.split("\n").forEach((line,index)=>{
+        if(index)paragraph.append(el("br"));
+        paragraph.append(document.createTextNode(line));
+      });
+      return paragraph.outerHTML;
+    }).join("");
+  }
+  function manualHtmlToText(value){
+    const box=el("div");box.innerHTML=manualSanitize(value);
+    box.querySelectorAll("br").forEach(node=>node.replaceWith(document.createTextNode("\n")));
+    box.querySelectorAll("th,td").forEach(node=>node.append(document.createTextNode("\t")));
+    box.querySelectorAll("p,h2,h3,h4,li,blockquote,tr,table").forEach(node=>node.append(document.createTextNode("\n")));
+    return (box.textContent||"")
+      .replace(/[ \u00a0]+\t/g,"\t").replace(/\t+\n/g,"\n")
+      .replace(/[ \u00a0]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+  }
+  function createRichTextEditor(initialHtml){
+    const root=el("div",undefined,"rich-editor");
+    const toolbar=el("div",undefined,"rich-toolbar");toolbar.setAttribute("role","toolbar");toolbar.setAttribute("aria-label","매뉴얼 서식 편집 도구");
+    const area=el("div",undefined,"rich-surface");area.contentEditable="true";area.spellcheck=true;area.setAttribute("role","textbox");area.setAttribute("aria-multiline","true");area.setAttribute("aria-label","매뉴얼 본문");
+    area.innerHTML=manualSanitize(initialHtml)||"<p><br></p>";
+    const source=el("textarea",undefined,"rich-source hidden");source.spellcheck=false;source.setAttribute("aria-label","허용된 HTML 소스");
+    const preview=el("div",undefined,"rich-preview hidden");preview.setAttribute("aria-label","게시 화면 미리보기");
+    const help=el("p","허용 형식: 제목·문단·굵게·기울임·밑줄·목록·정렬·링크·표. HTML 소스의 스크립트, 이벤트 속성, 인라인 스타일 등은 저장할 때 자동 제거됩니다.","rich-help");
+    let sourceMode=false,previewMode=false,savedRange=null;
+
+    function rememberSelection(){
+      const selection=window.getSelection();
+      if(selection&&selection.rangeCount&&area.contains(selection.getRangeAt(0).commonAncestorContainer))savedRange=selection.getRangeAt(0).cloneRange();
+    }
+    function restoreSelection(){
+      area.focus();
+      const selection=window.getSelection();
+      if(savedRange&&selection){selection.removeAllRanges();selection.addRange(savedRange);}
+    }
+    ["keyup","mouseup","input","focus"].forEach(name=>area.addEventListener(name,rememberSelection));
+    function exitPreview(){
+      if(!previewMode)return;
+      previewMode=false;preview.classList.add("hidden");
+      if(sourceMode)source.classList.remove("hidden");else area.classList.remove("hidden");
+      previewButton.setAttribute("aria-pressed","false");
+    }
+    function syncAreaFromSource(){
+      area.innerHTML=manualSanitize(source.value)||"<p><br></p>";
+      source.value=area.innerHTML;
+    }
+    function showSource(next){
+      exitPreview();
+      sourceMode=next;
+      if(next){
+        source.value=manualSanitize(area.innerHTML);
+        area.classList.add("hidden");source.classList.remove("hidden");source.focus();
+      }else{
+        syncAreaFromSource();source.classList.add("hidden");area.classList.remove("hidden");area.focus();
+      }
+      sourceButton.setAttribute("aria-pressed",String(next));
+    }
+    function prepareVisual(){
+      exitPreview();
+      if(sourceMode)showSource(false);
+      restoreSelection();
+    }
+    function run(command,value=null){
+      prepareVisual();
+      document.execCommand(command,false,value);
+      rememberSelection();
+    }
+    function tool(label,title,action){
+      const control=button(label,()=>{try{action();}catch(error){message(error.message,true);}},"btn");
+      control.title=title;control.setAttribute("aria-label",title);
+      control.addEventListener("mousedown",event=>{event.preventDefault();rememberSelection();});
+      toolbar.append(control);return control;
+    }
+    function separator(){const node=el("span",undefined,"separator");node.setAttribute("aria-hidden","true");toolbar.append(node);}
+    function selectionRange(){
+      prepareVisual();
+      const selection=window.getSelection();
+      if(!selection||!selection.rangeCount)return null;
+      const range=selection.getRangeAt(0);
+      return area.contains(range.commonAncestorContainer)?range:null;
+    }
+    function applySize(className){
+      const range=selectionRange();
+      if(!range||range.collapsed){message("글자 크기를 바꿀 내용을 먼저 선택해 주세요.",true);return;}
+      const span=el("span",undefined,className);
+      span.append(range.extractContents());range.insertNode(span);
+      range.selectNodeContents(span);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();
+    }
+    function applyAlignment(className){
+      const range=selectionRange();if(!range)return;
+      const selector="p,h2,h3,h4,li,blockquote,td,th";
+      let blocks=[...area.querySelectorAll(selector)].filter(node=>{try{return range.intersectsNode(node);}catch{return false;}});
+      if(!blocks.length){
+        const node=range.startContainer.nodeType===Node.ELEMENT_NODE?range.startContainer:range.startContainer.parentElement;
+        const block=node?.closest(selector);if(block&&area.contains(block))blocks=[block];
+      }
+      for(const node of blocks){
+        node.classList.remove("align-center","align-right","align-justify");
+        if(className)node.classList.add(className);
+      }
+      rememberSelection();
+    }
+    function activeCell(){
+      prepareVisual();
+      const selection=window.getSelection();
+      let node=selection?.anchorNode;
+      if(node?.nodeType!==Node.ELEMENT_NODE)node=node?.parentElement;
+      const cell=node?.closest?.("td,th");
+      return cell&&area.contains(cell)?cell:null;
+    }
+    function insertAtSelection(html){
+      const range=selectionRange();if(!range)return;
+      range.deleteContents();
+      const fragment=range.createContextualFragment(manualSanitize(html));
+      const last=fragment.lastChild;range.insertNode(fragment);
+      if(last){range.setStartAfter(last);range.collapse(true);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);}
+      rememberSelection();
+    }
+    function insertTable(){
+      const rowInput=prompt("표의 전체 행 수를 입력해 주세요(머리글 포함, 2~20).","3");
+      if(rowInput===null)return;
+      const columnInput=prompt("표의 열 수를 입력해 주세요(1~12).","3");
+      if(columnInput===null)return;
+      const rows=Number.parseInt(rowInput,10),columns=Number.parseInt(columnInput,10);
+      if(!Number.isInteger(rows)||rows<2||rows>20||!Number.isInteger(columns)||columns<1||columns>12){
+        message("행은 2~20, 열은 1~12 범위의 숫자로 입력해 주세요.",true);return;
+      }
+      let html='<table class="manual-table"><thead><tr>';
+      for(let column=0;column<columns;column++)html+='<th scope="col">제목</th>';
+      html+='</tr></thead><tbody>';
+      for(let row=1;row<rows;row++){html+="<tr>";for(let column=0;column<columns;column++)html+="<td><br></td>";html+="</tr>";}
+      html+="</tbody></table><p><br></p>";insertAtSelection(html);
+    }
+    function addRow(){
+      const cell=activeCell();if(!cell){message("표 안에 커서를 놓은 뒤 사용해 주세요.",true);return;}
+      const row=cell.parentElement,table=row.closest("table"),newRow=document.createElement("tr");
+      for(let index=0;index<row.cells.length;index++){const td=document.createElement("td");td.append(el("br"));newRow.append(td);}
+      if(row.parentElement.tagName==="THEAD"){
+        const body=table.tBodies[0]||table.createTBody();body.prepend(newRow);
+      }else row.after(newRow);
+    }
+    function deleteRow(){
+      const cell=activeCell();if(!cell){message("표 안에 커서를 놓은 뒤 사용해 주세요.",true);return;}
+      const table=cell.closest("table"),row=cell.parentElement;
+      if(table.rows.length<=1)table.remove();else row.remove();
+    }
+    function addColumn(){
+      const cell=activeCell();if(!cell){message("표 안에 커서를 놓은 뒤 사용해 주세요.",true);return;}
+      const index=cell.cellIndex,table=cell.closest("table");
+      for(const row of table.rows){
+        const tag=row.parentElement.tagName==="THEAD"?"th":"td",newCell=document.createElement(tag);
+        if(tag==="th")newCell.scope="col";newCell.append(document.createTextNode(tag==="th"?"제목":""));if(tag==="td")newCell.append(el("br"));
+        row.insertBefore(newCell,row.cells[index+1]||null);
+      }
+    }
+    function deleteColumn(){
+      const cell=activeCell();if(!cell){message("표 안에 커서를 놓은 뒤 사용해 주세요.",true);return;}
+      const index=cell.cellIndex,table=cell.closest("table"),max=Math.max(...[...table.rows].map(row=>row.cells.length));
+      if(max<=1){table.remove();return;}
+      for(const row of table.rows)if(row.cells[index])row.cells[index].remove();
+    }
+    function deleteTable(){
+      const cell=activeCell();if(!cell){message("표 안에 커서를 놓은 뒤 사용해 주세요.",true);return;}
+      cell.closest("table")?.remove();
+    }
+
+    const block=el("select");block.setAttribute("aria-label","문단 형식");
+    [["p","본문"],["h2","제목 1"],["h3","제목 2"],["h4","제목 3"],["blockquote","인용문"]].forEach(([value,label])=>block.append(option(value,label)));
+    block.addEventListener("mousedown",rememberSelection);block.addEventListener("change",()=>run("formatBlock",block.value));toolbar.append(block);
+    const size=el("select");size.setAttribute("aria-label","글자 크기");
+    [["","글자 크기"],["text-small","작게"],["text-large","크게"],["text-xlarge","매우 크게"]].forEach(([value,label])=>size.append(option(value,label)));
+    size.addEventListener("mousedown",rememberSelection);size.addEventListener("change",()=>{if(size.value)applySize(size.value);size.value="";});toolbar.append(size);
+    separator();
+    tool("B","굵게",()=>run("bold"));tool("I","기울임",()=>run("italic"));tool("U","밑줄",()=>run("underline"));tool("S","취소선",()=>run("strikeThrough"));
+    separator();
+    tool("• 목록","글머리표 목록",()=>run("insertUnorderedList"));tool("1. 목록","번호 목록",()=>run("insertOrderedList"));
+    separator();
+    tool("왼쪽","왼쪽 정렬",()=>applyAlignment(""));tool("가운데","가운데 정렬",()=>applyAlignment("align-center"));tool("오른쪽","오른쪽 정렬",()=>applyAlignment("align-right"));tool("양쪽","양쪽 정렬",()=>applyAlignment("align-justify"));
+    separator();
+    tool("링크","링크 만들기",()=>{const href=prompt("연결할 주소를 입력해 주세요. (https:// 또는 mailto:)","https://");if(href)run("createLink",href);});
+    tool("링크 해제","링크 해제",()=>run("unlink"));
+    separator();
+    tool("표 삽입","표 삽입",insertTable);tool("행 +","아래 행 추가",addRow);tool("행 −","현재 행 삭제",deleteRow);tool("열 +","오른쪽 열 추가",addColumn);tool("열 −","현재 열 삭제",deleteColumn);tool("표 삭제","표 전체 삭제",deleteTable);
+    separator();
+    tool("서식 지우기","선택 영역의 글자 서식 제거",()=>run("removeFormat"));tool("실행 취소","실행 취소",()=>run("undo"));tool("다시 실행","다시 실행",()=>run("redo"));
+    separator();
+    const sourceButton=tool("HTML 소스","허용된 HTML 소스 편집",()=>showSource(!sourceMode));sourceButton.setAttribute("aria-pressed","false");
+    const previewButton=tool("미리보기","게시 화면 미리보기",()=>{
+      if(previewMode){exitPreview();return;}
+      const html=sourceMode?manualSanitize(source.value):manualSanitize(area.innerHTML);
+      preview.innerHTML=html;area.classList.add("hidden");source.classList.add("hidden");preview.classList.remove("hidden");
+      previewMode=true;previewButton.setAttribute("aria-pressed","true");
+    });previewButton.setAttribute("aria-pressed","false");
+    root.append(toolbar,area,source,preview,help);
+    return {
+      root,
+      getHtml(){return sourceMode?manualSanitize(source.value):manualSanitize(area.innerHTML);},
+      getText(){return manualHtmlToText(this.getHtml());}
+    };
+  }
+
   async function manualView(box){
     if(!state.manualEditor)throw Error("매뉴얼 편집 권한이 없습니다.");
     const result=await state.db.from("manual_chapters")
-      .select("id,title,group_name,body,version,updated_at,sort_order").order("sort_order");
+      .select("id,title,group_name,body,body_html,version,updated_at,sort_order").order("sort_order");
     if(result.error)throw result.error;
     const chapters=result.data||[];
     if(!chapters.length){box.append(el("p","매뉴얼 장이 아직 등록되지 않았습니다."));return;}
@@ -263,7 +517,7 @@
     box.append(el("p","저장하면 홈페이지에 즉시 반영됩니다. 같은 장의 다른 담당자 수정본이 먼저 저장되면 덮어쓰지 않고 안내합니다.","muted"));
     const selectBox=el("label",undefined,"field"),picker=el("select");
     selectBox.append(el("span","편집할 장"));
-    for(const c of chapters)picker.append(option(c.id,c.title,c.id===current.id));
+    for(const chapter of chapters)picker.append(option(chapter.id,chapter.title,chapter.id===current.id));
     picker.addEventListener("change",async()=>{
       state.manualChapterId=picker.value;
       history.replaceState(null,"","#manual="+encodeURIComponent(picker.value));
@@ -273,27 +527,32 @@
     const card=el("div",undefined,"card");
     card.append(el("p",current.group_name+" · 게시 버전 "+current.version+" · 최종 수정 "+new Date(current.updated_at).toLocaleString("ko-KR"),"muted"));
     const form=el("form"),title=field("장 제목","text",current.title,"title");
-    const body=field("매뉴얼 본문(일반 텍스트)","textarea",current.body,"body");
     title.querySelector("input").maxLength=120;
-    const bodyInput=body.querySelector("textarea");
-    bodyInput.maxLength=200000;
-    bodyInput.style.minHeight="52vh";
+    const initialHtml=current.body_html||manualPlainToHtml(current.body);
+    const editor=createRichTextEditor(initialHtml);
+    const bodyField=el("div",undefined,"field");bodyField.append(el("span","매뉴얼 본문(서식 편집)"),editor.root);
     const error=el("p",undefined,"error-text");error.setAttribute("role","alert");
     const save=el("button","저장 및 즉시 게시","btn primary");save.type="submit";
-    form.append(title,body,error,save);
-    form.addEventListener("submit",async e=>{
-      e.preventDefault();save.disabled=true;error.textContent="";
-      const response=await state.db.rpc("save_manual_chapter",{
-        p_id:current.id,p_title:formValue(form,"title"),p_body:formValue(form,"body"),
-        p_expected_version:current.version
-      });
-      save.disabled=false;
-      if(response.error){error.textContent=response.error.message;return;}
-      await load();message("버전 "+response.data+"으로 게시했습니다. 홈페이지 새로고침 시 최신 내용이 표시됩니다.");
+    form.append(title,bodyField,error,save);
+    form.addEventListener("submit",async event=>{
+      event.preventDefault();save.disabled=true;error.textContent="";
+      try{
+        const html=editor.getHtml(),text=editor.getText(),headingText=formValue(form,"title").trim();
+        if(!headingText)throw Error("장 제목을 입력해 주세요.");
+        if(!text)throw Error("매뉴얼 본문을 입력해 주세요.");
+        if(text.length>200000)throw Error("검색용 본문은 200,000자를 넘을 수 없습니다.");
+        if(html.length>400000)throw Error("서식 본문은 400,000자를 넘을 수 없습니다.");
+        const response=await state.db.rpc("save_manual_chapter_rich",{
+          p_id:current.id,p_title:headingText,p_body:text,p_body_html:html,p_expected_version:current.version
+        });
+        if(response.error)throw response.error;
+        await load();message("버전 "+response.data+"으로 게시했습니다. 홈페이지 새로고침 시 최신 서식이 표시됩니다.");
+      }catch(saveError){error.textContent=saveError.message||"저장하지 못했습니다.";}
+      finally{save.disabled=false;}
     });
     card.append(form);box.append(card);
     const historyResult=await state.db.from("manual_revisions")
-      .select("version,title,body,editor_email,edited_at").eq("chapter_id",current.id)
+      .select("version,title,body,body_html,editor_email,edited_at").eq("chapter_id",current.id)
       .order("version",{ascending:false}).limit(10);
     if(historyResult.error)throw historyResult.error;
     const historyCard=el("div",undefined,"card");
@@ -301,8 +560,13 @@
     for(const revision of historyResult.data||[]){
       const details=el("details"),summary=el("summary",
         "버전 "+revision.version+" · "+revision.editor_email+" · "+new Date(revision.edited_at).toLocaleString("ko-KR"));
-      const prior=el("pre",revision.title+"\n\n"+revision.body);
-      prior.style.cssText="white-space:pre-wrap;max-height:300px;overflow:auto;background:#f5f7f5;padding:12px";
+      const prior=el("div",undefined,"history-rich rich-preview");
+      prior.append(el("h3",revision.title));
+      if(revision.body_html){
+        const content=el("div");content.innerHTML=manualSanitize(revision.body_html);prior.append(content);
+      }else{
+        const plain=el("pre",revision.body);plain.style.cssText="white-space:pre-wrap;margin:0";prior.append(plain);
+      }
       details.append(summary,prior);historyCard.append(details);
     }
     box.append(historyCard);
