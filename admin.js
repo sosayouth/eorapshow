@@ -10,6 +10,17 @@
   const statuses = { pending:"승인대기", active:"활성", rejected:"거절" };
   const personRoles = { trainee:"실습생", instructor:"실습지도자", staff:"운영 담당자" };
   const personStatuses = { planned:"예정", in_progress:"진행 중", completed:"수료", withdrawn:"중단·보관" };
+  const instructorTypes = {
+    practice_lead:"실습총괄", manager:"관리자", program_staff:"사업담당자", admin_staff:"행정담당자",
+    specialist:"전문분야 담당자", hr_staff:"인사·채용 담당자", practice_supervisor:"실습지도자", external_expert:"외부전문가"
+  };
+  const responsibilityLabels = { lead:"주담당", co:"공동담당", support:"지원" };
+  const splitList = value => String(value||"").split(",").map(x=>x.trim()).filter(Boolean);
+  const joinList = value => Array.isArray(value)?value.join(", "):"";
+  const careerText = months => {
+    const m=Number(months||0), y=Math.floor(m/12), r=m%12;
+    return (y?y+"년 ":"")+(r?r+"개월":(!y?"0개월":""));
+  };
   const metricLabels = {
     participants:"참여인원(명)",days:"실습 운영일수(일)",hours:"누적 실습시간(인시)",
     education:"교육 운영횟수(회)",projects:"프로젝트 운영건수(건)",completions:"수료인원(명)"
@@ -90,7 +101,7 @@
   }
   function buildNavigation(){
     $("role-info").textContent=(roles[state.profile.role]||"")+" · "+(isGlobal()?"전체기관":centerName(state.profile.institution_id))+" · 서버 저장";
-    const tabs=[["summary","대시보드"],["people","기관별 인원"],["monthly","월별 실적"],["cohorts","실습 차수"]];
+    const tabs=[["summary","대시보드"],["people","기관별 인원"],["instructors","강의 담당자 역량"],["monthly","월별 실적"],["cohorts","실습 차수"]];
     if(state.manualEditor)tabs.push(["manual","매뉴얼 편집"]);
     if(canManage())tabs.push(["staff","사용자·권한"]);
     if(canSeeAudit())tabs.push(["audit","감사기록"]);
@@ -121,6 +132,7 @@
       if(state.tab==="audit"){await auditView(box);return;}
       if(state.tab==="manual"){await manualView(box);return;}
       if(state.tab==="summary"){await summaryView(box);return;}
+      if(state.tab==="instructors"){await instructorView(box);return;}
       if(state.tab==="people"||state.tab==="cohorts"){
         state.cohorts=await query("cohorts","id,institution_id,year,name,start_date,end_date,created_at");
       }
@@ -295,6 +307,136 @@
     }
     box.append(historyCard);
   }
+
+  async function instructorView(box){
+    toolbar(box,"강의 담당자 역량 프로필",()=>instructorEditor());
+    const note=el("div",undefined,"card");
+    note.append(
+      el("h2","담당자 추천 기준"),
+      line("우선순위","관련업무 담당경력 → 전문분야 적합성 → 최근 담당시기 → 실제 사례 보유 → 강의경험 → 총 근무경력"),
+      line("경력 관리","총 근무경력·청소년분야 경력·현 기관 경력은 월 단위로 관리하고, 담당경력은 여러 건 누적합니다."),
+      line("개인정보","실제 직원 이름과 경력정보는 로그인한 관리화면에서만 관리합니다.")
+    );
+    box.append(note);
+    let req=scoped(state.db.from("instructor_profiles").select("*")).order("name",{ascending:true}).limit(500);
+    const result=await req;if(result.error)throw result.error;
+    const rows=result.data||[];
+    table(box,["기관","이름","담당자 유형","전문분야","근무경력","강의경험","관리"],rows,p=>[
+      centerName(p.institution_id),p.name,
+      (p.staff_types||[]).map(x=>instructorTypes[x]||x).join(" · ")||"—",
+      (p.specialties||[]).join(", ")||"—",
+      "총 "+careerText(p.total_career_months)+" / 청소년 "+careerText(p.youth_career_months)+" / 현기관 "+careerText(p.current_institution_months),
+      (p.lecture_experience_count||0)+"회",
+      canEdit()?actions(()=>instructorEditor(p)):"조회 전용"
+    ]);
+  }
+
+  function multiSelectField(label,name,values,current=[]){
+    const wrap=el("label",undefined,"field"), title=el("span",label), select=el("select");
+    select.name=name; select.multiple=true; select.size=Math.min(8,Math.max(4,values.length));
+    for(const [value,labelText] of values)select.append(option(value,labelText,current.includes(value)));
+    wrap.append(title,select); return wrap;
+  }
+
+  function instructorEditor(record=null){
+    if(!canEdit())return;
+    if(!record&&state.filter==="all"){message("등록할 기관을 먼저 조회 기관에서 선택해 주세요.",true);return;}
+    const dialog=$("editor"),form=$("editor-form");form.replaceChildren();
+    $("editor-title").textContent=record?"강의 담당자 역량 수정":"강의 담당자 역량 등록";
+    const selected=record?.institution_id||(state.filter==="all"?centerChoices()[0]?.[0]:state.filter);
+    const center=selectField("기관","institution_id",centerChoices(),selected);center.querySelector("select").disabled=true;form.append(center);
+    form.append(field("이름","text",record?.name||"","name"));
+    form.append(multiSelectField("담당자 유형(복수선택)","staff_types",Object.entries(instructorTypes),record?.staff_types||["program_staff"]));
+    form.append(field("전문분야(쉼표로 구분)","text",joinList(record?.specialties),"specialties",false));
+    form.append(field("총 근무경력(개월)","number",record?.total_career_months??0,"total_career_months"));
+    form.append(field("청소년분야 근무경력(개월)","number",record?.youth_career_months??0,"youth_career_months"));
+    form.append(field("현 기관 근무경력(개월)","number",record?.current_institution_months??0,"current_institution_months"));
+    form.append(field("강의·교육 경험(회)","number",record?.lecture_experience_count??0,"lecture_experience_count"));
+    form.append(field("관련 자격·교육","textarea",record?.qualifications||"","qualifications",false));
+    form.append(field("담당 가능 과목(쉼표로 구분)","text",joinList(record?.available_courses),"available_courses",false));
+    form.append(multiSelectField("희망 강의 영역","preferred_areas",[["이해","이해"],["실제","실제"],["경험","경험"],["가치","가치"]],record?.preferred_areas||[]));
+    form.append(field("비고","textarea",record?.notes||"","notes",false));
+    const active=el("label",undefined,"field"),activeInput=el("input");activeInput.type="checkbox";activeInput.name="is_active";activeInput.checked=record?.is_active!==false;
+    active.append(el("span","활성 상태"),activeInput);form.append(active);
+    if(record){
+      const careerBox=el("div",undefined,"card");
+      careerBox.append(el("h3","관련업무 담당경력"),el("p","저장 후 담당경력을 여러 건 누적할 수 있습니다.","muted"),
+        button("담당경력 관리",()=>careerManager(record),"btn"));
+      form.append(careerBox);
+    }
+    const error=el("p",undefined,"error-text");error.setAttribute("role","alert");
+    const save=el("button","저장","btn primary");save.type="submit";form.append(error,save);
+    form.onsubmit=async e=>{
+      e.preventDefault();save.disabled=true;error.textContent="";
+      try{
+        const fd=new FormData(form);
+        const payload={
+          institution_id:selected,
+          name:String(fd.get("name")||"").trim(),
+          staff_types:fd.getAll("staff_types"),
+          specialties:splitList(fd.get("specialties")),
+          total_career_months:Number(fd.get("total_career_months")||0),
+          youth_career_months:Number(fd.get("youth_career_months")||0),
+          current_institution_months:Number(fd.get("current_institution_months")||0),
+          lecture_experience_count:Number(fd.get("lecture_experience_count")||0),
+          qualifications:String(fd.get("qualifications")||"").trim(),
+          available_courses:splitList(fd.get("available_courses")),
+          preferred_areas:fd.getAll("preferred_areas"),
+          notes:String(fd.get("notes")||"").trim(),
+          is_active:!!form.elements.namedItem("is_active")?.checked
+        };
+        if(!payload.name)throw Error("이름을 입력해 주세요.");
+        if(!payload.staff_types.length)throw Error("담당자 유형을 하나 이상 선택해 주세요.");
+        const req=record?state.db.from("instructor_profiles").update(payload).eq("id",record.id):
+          state.db.from("instructor_profiles").insert(payload);
+        const result=await req.select("*").single();if(result.error)throw result.error;
+        dialog.close();await load();message("강의 담당자 역량 프로필을 저장했습니다.");
+      }catch(ex){error.textContent=ex.message;}finally{save.disabled=false;}
+    };
+    dialog.showModal();
+  }
+
+  async function careerManager(profile){
+    const dialog=$("editor"),form=$("editor-form");form.replaceChildren();
+    $("editor-title").textContent=profile.name+" · 담당경력";
+    let req=state.db.from("instructor_career_entries").select("*").eq("profile_id",profile.id).order("start_date",{ascending:false});
+    const result=await req;if(result.error){message(result.error.message,true);return;}
+    const records=result.data||[];
+    const wrap=el("div",undefined,"card scroll"),t=el("table"),thead=el("thead"),tr=el("tr"),tbody=el("tbody");
+    for(const h of ["전문분야","담당업무","기간","역할","비고"])tr.append(el("th",h));thead.append(tr);
+    for(const r of records){
+      const row=el("tr");
+      for(const v of [r.specialty,r.duty,(r.start_date||"")+" ~ "+(r.end_date||"현재"),responsibilityLabels[r.responsibility]||r.responsibility,r.notes||"—"])row.append(el("td",v));
+      tbody.append(row);
+    }
+    if(!records.length){const row=el("tr"),td=el("td","등록된 담당경력이 없습니다.");td.colSpan=5;row.append(td);tbody.append(row);}
+    t.append(thead,tbody);wrap.append(t);form.append(wrap);
+    const add=el("div",undefined,"card");add.append(el("h3","담당경력 추가"));
+    add.append(field("전문분야","text","","career_specialty"),field("담당업무","text","","career_duty"));
+    add.append(field("시작일","date","","career_start"),field("종료일(현재 담당이면 비움)","date","","career_end",false));
+    add.append(selectField("담당 수준","career_responsibility",Object.entries(responsibilityLabels),"lead"));
+    add.append(field("주요 사례·비고","textarea","","career_notes",false));
+    const error=el("p",undefined,"error-text"),save=button("경력 추가",async()=>{
+      save.disabled=true;error.textContent="";
+      try{
+        const payload={
+          profile_id:profile.id,institution_id:profile.institution_id,
+          specialty:formValue(add,"career_specialty").trim(),
+          duty:formValue(add,"career_duty").trim(),
+          start_date:formValue(add,"career_start"),
+          end_date:formValue(add,"career_end")||null,
+          responsibility:formValue(add,"career_responsibility"),
+          notes:formValue(add,"career_notes").trim()
+        };
+        if(!payload.specialty||!payload.duty||!payload.start_date)throw Error("전문분야·담당업무·시작일을 입력해 주세요.");
+        if(payload.end_date&&payload.end_date<payload.start_date)throw Error("종료일은 시작일 이후여야 합니다.");
+        const res=await state.db.from("instructor_career_entries").insert(payload).select("id").single();if(res.error)throw res.error;
+        dialog.close();await instructorView($("content"));message("담당경력을 추가했습니다.");
+      }catch(ex){error.textContent=ex.message;}finally{save.disabled=false;}
+    },"btn primary");
+    add.append(error,save);form.append(add);dialog.showModal();
+  }
+
   async function auditView(box){
     if(!canSeeAudit())return;
     toolbar(box,"최근 감사기록");
