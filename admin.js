@@ -248,7 +248,7 @@
     });
   }
   const manualAllowedTags=[
-    "p","br","strong","b","em","i","u","s","h2","h3","h4","ul","ol","li",
+    "p","br","strong","b","em","i","u","s","strike","h2","h3","h4","ul","ol","li",
     "blockquote","a","table","thead","tbody","tfoot","tr","th","td","span"
   ];
   const manualAllowedAttrs=["href","target","rel","class","colspan","rowspan","scope"];
