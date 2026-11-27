@@ -431,7 +431,7 @@
         if(!payload.specialty||!payload.duty||!payload.start_date)throw Error("전문분야·담당업무·시작일을 입력해 주세요.");
         if(payload.end_date&&payload.end_date<payload.start_date)throw Error("종료일은 시작일 이후여야 합니다.");
         const res=await state.db.from("instructor_career_entries").insert(payload).select("id").single();if(res.error)throw res.error;
-        dialog.close();await instructorView($("content"));message("담당경력을 추가했습니다.");
+        dialog.close();await load();message("담당경력을 추가했습니다.");
       }catch(ex){error.textContent=ex.message;}finally{save.disabled=false;}
     },"btn primary");
     add.append(error,save);form.append(add);dialog.showModal();
