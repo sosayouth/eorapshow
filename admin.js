@@ -248,13 +248,13 @@
     });
   }
   const manualAllowedTags=[
-    "p","br","strong","b","em","i","u","s","strike","h2","h3","h4","ul","ol","li",
+    "p","br","strong","b","em","i","u","s","strike","h2","h3","h4","h5","h6","ul","ol","li",
     "blockquote","a","table","thead","tbody","tfoot","tr","th","td","span"
   ];
   const manualAllowedAttrs=["href","target","rel","class","colspan","rowspan","scope"];
   const manualAllowedClasses=new Set([
     "text-small","text-large","text-xlarge",
-    "align-center","align-right","align-justify","manual-table"
+    "align-center","align-right","align-justify","manual-table","manual-note"
   ]);
   function normalizeManualSpan(value){
     const number=Number.parseInt(value,10);
@@ -311,7 +311,7 @@
     const box=el("div");box.innerHTML=manualSanitize(value);
     box.querySelectorAll("br").forEach(node=>node.replaceWith(document.createTextNode("\n")));
     box.querySelectorAll("th,td").forEach(node=>node.append(document.createTextNode("\t")));
-    box.querySelectorAll("p,h2,h3,h4,li,blockquote,tr,table").forEach(node=>node.append(document.createTextNode("\n")));
+    box.querySelectorAll("p,h2,h3,h4,h5,h6,li,blockquote,tr,table").forEach(node=>node.append(document.createTextNode("\n")));
     return (box.textContent||"")
       .replace(/[ \u00a0]+\t/g,"\t").replace(/\t+\n/g,"\n")
       .replace(/[ \u00a0]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
@@ -390,7 +390,7 @@
     }
     function applyAlignment(className){
       const range=selectionRange();if(!range)return;
-      const selector="p,h2,h3,h4,li,blockquote,td,th";
+      const selector="p,h2,h3,h4,h5,h6,li,blockquote,td,th";
       let blocks=[...area.querySelectorAll(selector)].filter(node=>{try{return range.intersectsNode(node);}catch{return false;}});
       if(!blocks.length){
         const node=range.startContainer.nodeType===Node.ELEMENT_NODE?range.startContainer:range.startContainer.parentElement;
@@ -467,7 +467,7 @@
     }
 
     const block=el("select");block.setAttribute("aria-label","문단 형식");
-    [["p","본문"],["h2","제목 1"],["h3","제목 2"],["h4","제목 3"],["blockquote","인용문"]].forEach(([value,label])=>block.append(option(value,label)));
+    [["p","본문"],["h2","제목 1"],["h3","제목 2"],["h4","제목 3"],["h5","제목 4"],["h6","제목 5"],["blockquote","인용문"]].forEach(([value,label])=>block.append(option(value,label)));
     block.addEventListener("mousedown",rememberSelection);block.addEventListener("change",()=>run("formatBlock",block.value));toolbar.append(block);
     const size=el("select");size.setAttribute("aria-label","글자 크기");
     [["","글자 크기"],["text-small","작게"],["text-large","크게"],["text-xlarge","매우 크게"]].forEach(([value,label])=>size.append(option(value,label)));
@@ -475,7 +475,7 @@
     separator();
     tool("B","굵게",()=>run("bold"));tool("I","기울임",()=>run("italic"));tool("U","밑줄",()=>run("underline"));tool("S","취소선",()=>run("strikeThrough"));
     separator();
-    tool("• 목록","글머리표 목록",()=>run("insertUnorderedList"));tool("1. 목록","번호 목록",()=>run("insertOrderedList"));
+    tool("• 목록","글머리표 목록",()=>run("insertUnorderedList"));tool("① 목록","동그라미 번호 목록",()=>run("insertOrderedList"));
     separator();
     tool("왼쪽","왼쪽 정렬",()=>applyAlignment(""));tool("가운데","가운데 정렬",()=>applyAlignment("align-center"));tool("오른쪽","오른쪽 정렬",()=>applyAlignment("align-right"));tool("양쪽","양쪽 정렬",()=>applyAlignment("align-justify"));
     separator();
@@ -528,7 +528,9 @@
     card.append(el("p",current.group_name+" · 게시 버전 "+current.version+" · 최종 수정 "+new Date(current.updated_at).toLocaleString("ko-KR"),"muted"));
     const form=el("form"),title=field("장 제목","text",current.title,"title");
     title.querySelector("input").maxLength=120;
-    const initialHtml=current.body_html||manualPlainToHtml(current.body);
+    const initialHtml = current.body_html ||
+      window.EORAPSHOW_MANUAL_LAYOUT?.render(current.id, current.body) ||
+      manualPlainToHtml(current.body);
     const editor=createRichTextEditor(initialHtml);
     const bodyField=el("div",undefined,"field");bodyField.append(el("span","매뉴얼 본문(서식 편집)"),editor.root);
     const error=el("p",undefined,"error-text");error.setAttribute("role","alert");

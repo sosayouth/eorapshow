@@ -3,13 +3,13 @@
   "use strict";
   const cfg = window.EORAPSHOW_CONFIG || {};
   const allowedTags = [
-    "p","br","strong","b","em","i","u","s","strike","h2","h3","h4","ul","ol","li",
+    "p","br","strong","b","em","i","u","s","strike","h2","h3","h4","h5","h6","ul","ol","li",
     "blockquote","a","table","thead","tbody","tfoot","tr","th","td","span"
   ];
   const allowedAttrs = ["href","target","rel","class","colspan","rowspan","scope"];
   const allowedClasses = new Set([
     "text-small","text-large","text-xlarge",
-    "align-center","align-right","align-justify","manual-table"
+    "align-center","align-right","align-justify","manual-table","manual-note"
   ]);
 
   function normalizeSpan(value) {
@@ -98,12 +98,37 @@
     }
   }
 
+  function wrapTables(container) {
+    const headings = "h2,h3,h4,h5,h6";
+    let label = "";
+    for (const block of container.querySelectorAll(headings + ",table")) {
+      if (block.matches(headings)) {
+        label = block.textContent.trim();
+        continue;
+      }
+      const wrapper = document.createElement("div");
+      wrapper.className = "manual-table-scroll";
+      const columns = Math.max(0, ...[...block.rows].map(row =>
+        [...row.cells].reduce((count, cell) => count + cell.colSpan, 0)
+      ));
+      if (columns > 3) {
+        wrapper.classList.add("manual-table-scroll--wide");
+        wrapper.tabIndex = 0;
+        wrapper.setAttribute("role", "region");
+        wrapper.setAttribute("aria-label", label ? label + " 표" : "매뉴얼 표");
+      }
+      block.replaceWith(wrapper);
+      wrapper.append(block);
+    }
+  }
+
   window.EORAPSHOW_RENDER_MANUAL_HTML = value => {
     const safe = sanitizeManualHtml(value);
     if (!safe) return "";
     const box = document.createElement("div");
     box.innerHTML = safe;
     linkReferences(box);
+    wrapTables(box);
     return box.innerHTML;
   };
 

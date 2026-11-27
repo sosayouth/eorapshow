@@ -1,0 +1,142 @@
+/* 매뉴얼 읽기, 담당자 편집, 인쇄의 공통 서식 */
+@counter-style manual-circled {
+  system: fixed;
+  symbols: "①" "②" "③" "④" "⑤" "⑥" "⑦" "⑧" "⑨" "⑩"
+           "⑪" "⑫" "⑬" "⑭" "⑮" "⑯" "⑰" "⑱" "⑲" "⑳";
+  suffix: " ";
+  fallback: decimal;
+}
+
+.manual-toc-group + .manual-toc-group {
+  margin-block-start: .9rem;
+  padding-block-start: .75rem;
+  border-block-start: 1px solid #d1e0d8;
+}
+
+.manual-toc .manual-toc-label {
+  margin: 0 0 .25rem;
+  padding-inline: .5rem;
+  color: #164e47;
+  font-size: .92rem;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.manual-toc button {
+  font-size: .875rem;
+  line-height: 1.5;
+}
+
+.manual-article .manual-chapter-title {
+  margin: .75rem 0 1.45rem;
+  color: #183e36;
+  font-size: clamp(1.35rem, 1.12rem + .7vw, 1.85rem);
+  line-height: 1.4;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.prose.manual-rich {
+  white-space: normal;
+  color: #263f39;
+  font-size: 1.025rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+
+:is(.manual-rich, .rich-surface, .rich-preview) p { margin: .65em 0; }
+
+:is(.manual-rich, .rich-surface, .rich-preview) :is(h2, h3, h4, h5, h6) {
+  color: #164e47;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: 1.35em 0 .45em;
+  overflow-wrap: anywhere;
+}
+
+:is(.manual-rich, .rich-surface, .rich-preview) h2 { font-size: 1.43rem; }
+:is(.manual-rich, .rich-surface, .rich-preview) h3 {
+  border-block-end: 1px solid #c9dbd1;
+  padding-block-end: .32em;
+  font-size: 1.24rem;
+}
+:is(.manual-rich, .rich-surface, .rich-preview) h4 { font-size: 1.12rem; }
+:is(.manual-rich, .rich-surface, .rich-preview) h5 { font-size: 1.02rem; }
+:is(.manual-rich, .rich-surface, .rich-preview) h6 { font-size: .95rem; }
+
+.manual-rich > :first-child { margin-block-start: 0; }
+
+:is(.manual-rich, .rich-surface, .rich-preview) :is(ul, ol) {
+  margin: .45em 0 .95em;
+  padding-inline-start: 1.65em;
+}
+:is(.manual-rich, .rich-surface, .rich-preview) ol { list-style-type: manual-circled; }
+:is(.manual-rich, .rich-surface, .rich-preview) li + li { margin-block-start: .12em; }
+:is(.manual-rich, .rich-surface, .rich-preview) ol > li::marker { color: #176456; font-weight: 700; }
+:is(.manual-rich, .rich-surface, .rich-preview) li :is(ul, ol) { margin-block: .18em .35em; }
+
+:is(.manual-rich, .rich-surface, .rich-preview) :is(blockquote, .manual-note) {
+  margin: 1em 0;
+  padding: .65em .85em;
+  border-inline-start: 3px solid #176456;
+  background: #edf6f1;
+}
+
+.manual-rich .manual-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  margin-block: .85rem 1.3rem;
+}
+.manual-rich .manual-table-scroll--wide table { min-inline-size: 42rem; }
+.manual-rich .manual-table-scroll:focus-visible { outline: 2px solid #176456; outline-offset: -2px; }
+
+:is(.manual-rich, .rich-surface, .rich-preview) table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  margin-block: .85rem 1.3rem;
+  font-size: .945em;
+  line-height: 1.6;
+}
+.manual-rich .manual-table-scroll table { margin: 0; }
+
+:is(.manual-rich, .rich-surface, .rich-preview) :is(th, td) {
+  border: 1px solid #9eb3a7;
+  padding: .48rem .62rem;
+  vertical-align: top;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+:is(.manual-rich, .rich-surface, .rich-preview) thead th {
+  color: #113e35;
+  background: #e3f0e8;
+  font-weight: 700;
+}
+:is(.manual-rich, .rich-surface, .rich-preview) tbody th[scope="row"] {
+  color: #234e43;
+  font-weight: 600;
+}
+:is(.manual-rich, .rich-surface, .rich-preview) tbody tr:nth-child(even) { background: #f6faf7; }
+:is(.manual-rich, .rich-surface, .rich-preview) :is(th, td) > :first-child { margin-block-start: 0; }
+:is(.manual-rich, .rich-surface, .rich-preview) :is(th, td) > :last-child { margin-block-end: 0; }
+:is(.manual-rich, .rich-surface, .rich-preview) .align-center { text-align: center; }
+:is(.manual-rich, .rich-surface, .rich-preview) .align-right { text-align: right; }
+:is(.manual-rich, .rich-surface, .rich-preview) .align-justify { text-align: justify; }
+
+@media (max-width: 600px) {
+  .manual-article { padding-inline: 1rem; }
+  .prose.manual-rich { font-size: 1rem; }
+  .manual-rich :is(th, td) { padding: .42rem; }
+}
+
+@media print {
+  .manual-layout { display: block; }
+  .manual-article .manual-chapter-title { color: #172520; font-size: 16pt; }
+  .prose.manual-rich { color: #172520; font-size: 10.5pt; line-height: 1.55; }
+  .manual-rich :is(h2, h3, h4, h5, h6) { break-after: avoid; }
+  .manual-rich .manual-table-scroll { overflow: visible; }
+  .manual-rich .manual-table-scroll--wide table { min-inline-size: 0; table-layout: fixed; }
+  .manual-rich :is(th, td) { border: .5pt solid #73857b; }
+  .manual-rich thead { display: table-header-group; }
+  .manual-rich tr { break-inside: avoid; }
+}
