@@ -15,7 +15,7 @@
     education:"교육 운영횟수(회)",projects:"프로젝트 운영건수(건)",completions:"수료인원(명)"
   };
   const state = {
-    db:null,user:null,profile:null,institutions:[],cohorts:[],rows:[],
+    db:null,user:null,profile:null,institutions:[],cohorts:[],rows:[],manualEditor:false,manualChapterId:null,
     tab:"summary",filter:"all",month:new Date().toLocaleDateString("sv-SE",{timeZone:"Asia/Seoul"}).slice(0,7)
   };
   function show(id){ for (const key of ["setup","login","pending","app"]) $(key).classList.toggle("hidden",key!==id); }
@@ -75,6 +75,15 @@
     const centers=await state.db.from("institutions").select("id,name,is_active,sort_order").order("sort_order");
     if(centers.error)throw centers.error;
     state.institutions=centers.data||[];
+    const assignment=await state.db.from("manual_editors")
+      .select("institution_id").eq("email",state.profile.email)
+      .eq("institution_id",state.profile.institution_id).maybeSingle();
+    if(assignment.error)throw assignment.error;
+    state.manualEditor=isGlobal()||!!assignment.data;
+    if(location.hash.startsWith("#manual")){
+      state.tab=state.manualEditor?"manual":"summary";
+      state.manualChapterId=decodeURIComponent(location.hash.split("=")[1]||"");
+    }
     state.filter=isGlobal()?"all":state.profile.institution_id;
     if(!state.filter)throw Error("소속기관이 지정되지 않았습니다. 관리자가 계정 설정을 확인해야 합니다.");
     show("app"); buildNavigation(); await load();
@@ -82,6 +91,7 @@
   function buildNavigation(){
     $("role-info").textContent=(roles[state.profile.role]||"")+" · "+(isGlobal()?"전체기관":centerName(state.profile.institution_id))+" · 서버 저장";
     const tabs=[["summary","대시보드"],["people","기관별 인원"],["monthly","월별 실적"],["cohorts","실습 차수"]];
+    if(state.manualEditor)tabs.push(["manual","매뉴얼 편집"]);
     if(canManage())tabs.push(["staff","사용자·권한"]);
     if(canSeeAudit())tabs.push(["audit","감사기록"]);
     $("tabs").replaceChildren();
@@ -109,6 +119,7 @@
       $("export").classList.toggle("hidden",!["people","monthly"].includes(state.tab));
       if(state.tab==="staff"){await staffView(box);return;}
       if(state.tab==="audit"){await auditView(box);return;}
+      if(state.tab==="manual"){await manualView(box);return;}
       if(state.tab==="summary"){await summaryView(box);return;}
       if(state.tab==="people"||state.tab==="cohorts"){
         state.cohorts=await query("cohorts","id,institution_id,year,name,start_date,end_date,created_at");
@@ -194,6 +205,95 @@
       [p.display_name? p.display_name+" / "+p.email:p.email,centerName(p.institution_id),
         roles[p.role],statuses[p.status],
         p.user_id===state.user.id?"본인 계정":actions(()=>openEditor("staff",p))]);
+    if(isGlobal())await manualAssignmentsView(box);
+  }
+  async function manualAssignmentsView(box){
+    const result=await state.db.from("manual_editors").select("institution_id,email");
+    if(result.error)throw result.error;
+    const assigned=new Map((result.data||[]).map(x=>[x.institution_id,x.email]));
+    box.append(el("h2","기관별 공통 매뉴얼 편집 담당자"));
+    box.append(el("p","기관마다 업무용 이메일로 담당자 한 명을 미리 지정할 수 있습니다. 가입·이메일 확인·관리자 승인·소속기관 일치 후 편집 권한이 활성화됩니다. 담당자는 공통 매뉴얼 23개 장을 편집하며 저장 즉시 홈페이지에 게시됩니다.","muted"));
+    const centers=state.institutions.filter(x=>x.id!=="foundation"&&x.is_active);
+    table(box,["기관","담당자 이메일·상태","지정"],centers,c=>{
+      const control=el("input");
+      control.type="email";control.value=assigned.get(c.id)||"";
+      control.placeholder="담당자@bwyf.or.kr";
+      control.setAttribute("aria-label",c.name+" 매뉴얼 담당자 이메일");
+      const record=state.rows.find(p=>p.institution_id===c.id&&p.email===control.value&&p.status==="active");
+      const cell=el("div");
+      cell.append(control,el("p",record?"계정 승인 완료"+(record.display_name?" · "+record.display_name:""):"가입·이메일 확인·승인 대기","muted"));
+      const save=button("지정 저장",async()=>{
+        if(control.value&&!control.checkValidity()){message("올바른 이메일을 입력해 주세요.",true);return;}
+        save.disabled=true;
+        const result=await state.db.rpc("assign_manual_editor_email",{
+          p_institution_id:c.id,p_email:control.value.trim()
+        });
+        save.disabled=false;
+        if(result.error){message("담당자 지정 실패: "+result.error.message,true);return;}
+        await load();message(c.name+" 매뉴얼 담당자를 변경했습니다.");
+      });
+      return [c.name,cell,save];
+    });
+  }
+  async function manualView(box){
+    if(!state.manualEditor)throw Error("매뉴얼 편집 권한이 없습니다.");
+    const result=await state.db.from("manual_chapters")
+      .select("id,title,group_name,body,version,updated_at,sort_order").order("sort_order");
+    if(result.error)throw result.error;
+    const chapters=result.data||[];
+    if(!chapters.length){box.append(el("p","매뉴얼 장이 아직 등록되지 않았습니다."));return;}
+    let current=chapters.find(x=>x.id===state.manualChapterId)||chapters[0];
+    state.manualChapterId=current.id;
+    const heading=el("div",undefined,"toolbar");
+    heading.append(el("h2","공통 매뉴얼 편집"));
+    const view=el("a","공개 화면 보기","btn");
+    view.href="./index.html#manual";heading.append(view);box.append(heading);
+    box.append(el("p","저장하면 홈페이지에 즉시 반영됩니다. 같은 장의 다른 담당자 수정본이 먼저 저장되면 덮어쓰지 않고 안내합니다.","muted"));
+    const selectBox=el("label",undefined,"field"),picker=el("select");
+    selectBox.append(el("span","편집할 장"));
+    for(const c of chapters)picker.append(option(c.id,c.title,c.id===current.id));
+    picker.addEventListener("change",async()=>{
+      state.manualChapterId=picker.value;
+      history.replaceState(null,"","#manual="+encodeURIComponent(picker.value));
+      await load();
+    });
+    selectBox.append(picker);box.append(selectBox);
+    const card=el("div",undefined,"card");
+    card.append(el("p",current.group_name+" · 게시 버전 "+current.version+" · 최종 수정 "+new Date(current.updated_at).toLocaleString("ko-KR"),"muted"));
+    const form=el("form"),title=field("장 제목","text",current.title,"title");
+    const body=field("매뉴얼 본문(일반 텍스트)","textarea",current.body,"body");
+    title.querySelector("input").maxLength=120;
+    const bodyInput=body.querySelector("textarea");
+    bodyInput.maxLength=200000;
+    bodyInput.style.minHeight="52vh";
+    const error=el("p",undefined,"error-text");error.setAttribute("role","alert");
+    const save=el("button","저장 및 즉시 게시","btn primary");save.type="submit";
+    form.append(title,body,error,save);
+    form.addEventListener("submit",async e=>{
+      e.preventDefault();save.disabled=true;error.textContent="";
+      const response=await state.db.rpc("save_manual_chapter",{
+        p_id:current.id,p_title:formValue(form,"title"),p_body:formValue(form,"body"),
+        p_expected_version:current.version
+      });
+      save.disabled=false;
+      if(response.error){error.textContent=response.error.message;return;}
+      await load();message("버전 "+response.data+"으로 게시했습니다. 홈페이지 새로고침 시 최신 내용이 표시됩니다.");
+    });
+    card.append(form);box.append(card);
+    const historyResult=await state.db.from("manual_revisions")
+      .select("version,title,body,editor_email,edited_at").eq("chapter_id",current.id)
+      .order("version",{ascending:false}).limit(10);
+    if(historyResult.error)throw historyResult.error;
+    const historyCard=el("div",undefined,"card");
+    historyCard.append(el("h2","최근 수정 이력"));
+    for(const revision of historyResult.data||[]){
+      const details=el("details"),summary=el("summary",
+        "버전 "+revision.version+" · "+revision.editor_email+" · "+new Date(revision.edited_at).toLocaleString("ko-KR"));
+      const prior=el("pre",revision.title+"\n\n"+revision.body);
+      prior.style.cssText="white-space:pre-wrap;max-height:300px;overflow:auto;background:#f5f7f5;padding:12px";
+      details.append(summary,prior);historyCard.append(details);
+    }
+    box.append(historyCard);
   }
   async function auditView(box){
     if(!canSeeAudit())return;
@@ -354,7 +454,9 @@
       setTimeout(()=>{
         const dialog=$("editor"),form=$("editor-form");form.replaceChildren();
         $("editor-title").textContent="새 비밀번호 설정";
-        form.append(field("새 비밀번호(12자 이상)","password","","new_password"));
+        const newPassword=field("새 비밀번호(6자 이상)","password","","new_password");
+        newPassword.querySelector("input").minLength=6;
+        form.append(newPassword);
         const save=el("button","변경","btn primary");save.type="submit";form.append(save);
         form.onsubmit=async e=>{e.preventDefault();
           const result=await state.db.auth.updateUser({password:formValue(form,"new_password")});
