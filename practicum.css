@@ -43,9 +43,40 @@
 .pr-print-only { display: none; }
 .pr-app [hidden], .pr-shell [hidden], .pr-header [hidden] { display: none !important; }
 @media print {
+  @page practicum { size: A4 portrait; margin: 16mm; }
+  body.pr-printing { background: #fff !important; }
   body.pr-printing > :not(.pr-print-only) { display: none !important; }
-  body.pr-printing > .pr-print-only { display: block; color: #000; font: 11pt/1.55 system-ui, sans-serif; }
-  .pr-print-only h1 { font-size: 18pt; margin-bottom: 12pt; }
-  .pr-print-only .pr-body-field { break-inside: avoid-page; border-bottom: 1px solid #bbb; }
-  @page { margin: 16mm; }
+  body.pr-printing > .pr-print-only {
+    display: block;
+    page: practicum;
+    width: 100%;
+    color: #171717;
+    font: 10.5pt/1.48 "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans CJK KR", system-ui, sans-serif;
+  }
+  .pr-print-only .pr-print-header { break-inside: avoid-page; break-after: avoid-page; }
+  .pr-print-only .pr-print-top { display: flex; align-items: flex-start; gap: 4mm; }
+  .pr-print-only .pr-form-number { font-size: 10pt; font-weight: 650; }
+  .pr-print-only h1 { text-align: center; margin: 5mm 0 6mm; font-size: 21pt; letter-spacing: .07em; }
+
+  .pr-print-only .pr-approval { width: 69mm; margin: 0 0 0 auto; }
+  .pr-print-only :is(.pr-approval, .pr-print-table) { border-collapse: collapse; table-layout: fixed; }
+  .pr-print-only :is(.pr-approval, .pr-print-table) :is(th, td) {
+    border: .6pt solid #333;
+    padding: 2mm 2.5mm;
+    color: #171717;
+    background: #fff;
+  }
+  .pr-print-only .pr-approval th { text-align: center; font-size: 9.5pt; padding: 1mm; }
+  .pr-print-only .pr-approval th[scope="rowgroup"] { width: 10mm; }
+  .pr-print-only .pr-approval-signatures td { height: 13mm; }
+  .pr-print-only .pr-print-table { width: 100%; }
+  .pr-print-only .pr-print-table + .pr-print-table { margin-top: 3mm; }
+  .pr-print-only .pr-print-table th { width: 30mm; text-align: center; line-height: 1.35; }
+  .pr-print-only .pr-print-table td { vertical-align: top; overflow-wrap: anywhere; }
+  .pr-print-only .pr-print-meta { break-inside: avoid-page; }
+  .pr-print-only .pr-print-signatures { display: flex; flex-wrap: wrap; gap: 5mm; padding: 2mm 0; }
+  .pr-print-only .pr-body-field { margin: 0 0 2mm; padding: 0; border: 0; orphans: 2; widows: 2; }
+  .pr-print-only .pr-body-field:last-child { margin-bottom: 0; }
+  .pr-print-only .pr-body-field h3 { margin: 0 0 .6mm; font-size: 10pt; break-after: avoid-page; }
+  .pr-print-only .pr-print-table p { margin: 0; }
 }

@@ -47,7 +47,7 @@
     const root = layout("pr-app", layout("pr-row pr-between", el("h2", cohort.name + " · 제출 검토"),
       button("차수 목록", onBack)), notice, body);
     box.replaceChildren(root);
-    const state = { board: null, tab: "progress", learner: "", kind: "", filter: "", page: 0, link: null };
+    const state = { board: null, tab: "progress", learner: "", kind: "", filter: "", page: 0, link: null, calendarDates: "" };
     const say = (text, error) => message(notice, text, error);
     async function run(task, control) {
       if (control) control.disabled = true;
@@ -120,7 +120,7 @@
         item.person_name,
         item.day ? item.day + " 일지" : item.title + (item.individual ? " · 개별" : ""),
         dateLabel(item.due_at),
-        layout("pr-row", badge(rowStatus(item, today)), ...(item.late ? [el("small", "기한 후 제출")] : [])),
+        layout("pr-row", badge(rowStatus(item, today)), ...(item.late ? [el("small", "제출 당시 기한 후")] : [])),
         item.can_review ? button(item.status === "submitted" ? "검토하기" : "이력 보기", event =>
           run(() => open(item.work_id), event.currentTarget), item.status === "submitted") : "—"
       ]));
@@ -144,7 +144,7 @@
         el("h3", item.person_name + " · " + item.title + (item.day ? " · " + item.day : "")),
         button("현황으로", () => { say(""); render(); })),
         layout("pr-row", badge(item.status), el("span", "제출기한 " + dateLabel(item.due_at), "pr-muted")));
-      body.replaceChildren(overview, panel(versionList(db, item, notice)));
+      body.replaceChildren(overview, panel(versionList(db, item, notice, cohort)));
       overview.querySelector("button").focus();
       if (!item.can_review) return;
       const outcome = select([["reviewed", "검토 완료"], ["changes", "보완 요청"]]);
@@ -245,45 +245,80 @@
     }
 
     function calendar() {
-      const { days } = state.board;
+      const { days, diary_deadline: deadline } = state.board;
       const dates = el("textarea");
       dates.required = true;
       dates.placeholder = "YYYY-MM-DD";
-      const time = input("time", "18:00");
+      dates.value = state.calendarDates;
+      const delay = input("number", String(deadline.delay_days));
+      delay.required = true;
+      delay.min = "0";
+      delay.step = "1";
+      const time = input("time", deadline.cutoff.slice(0, 5));
       time.required = true;
+
       const toDates = () => [...new Set(dates.value.trim().split(/[\s,]+/).filter(Boolean))];
-      const save = (cancel, control) => run(async () => {
+      const saveDates = (cancel, control) => run(async () => {
         const listed = toDates();
         if (!listed.length || listed.length > 150 || listed.some(value => !/^\d{4}-\d{2}-\d{2}$/.test(value)))
-          throw new Error("날짜를 YYYY-MM-DD 형식으로 한 줄에 하나씩 입력해 주세요.");
-        await rpc(db, "set_days", { p_cohort: cohort.id, p_dates: listed, p_time: time.value, p_cancel: cancel });
+          throw new Error("실습일을 YYYY-MM-DD 형식으로 최대 150개까지 입력해 주세요.");
+        await rpc(db, "set_days", { p_cohort: cohort.id, p_dates: listed, p_time: null, p_cancel: cancel });
+        state.calendarDates = "";
         await fetchBoard();
-        say(cancel ? "선택한 실습일을 취소했습니다." : "실습일과 일지 마감 시각을 저장했습니다.");
+        say(cancel ? "선택한 실습일을 취소했습니다." : "실습일을 저장했습니다. 각 날짜에 이 차수의 일지 마감 기준을 적용했습니다.");
       }, control);
-      const { form, submit } = formSubmit("실습일 저장", control => save(false, control));
-      const fill = button("차수 평일 채우기", () => {
+      const { form: dateForm, submit: dateSubmit } = formSubmit("실습일 저장", control => saveDates(false, control));
+
+      function fillDates(firstWeekday, lastWeekday) {
         const first = new Date(cohort.start_date + "T00:00:00Z");
         const last = new Date(cohort.end_date + "T00:00:00Z");
-        if (!Number.isFinite(first.valueOf()) || !Number.isFinite(last.valueOf()) || (last - first) / 86400000 > 210) {
-          say("차수 시작일·종료일을 확인하거나 실제 실습일을 직접 입력해 주세요.", true);
+        if (!Number.isFinite(first.valueOf()) || !Number.isFinite(last.valueOf()) || first > last) {
+          say("차수의 시작일과 종료일을 확인하거나 실습일을 직접 입력해 주세요.", true);
           return;
         }
         const values = [];
-        for (const day = first; day <= last; day.setUTCDate(day.getUTCDate() + 1))
-          if (day.getUTCDay() >= 1 && day.getUTCDay() <= 5) values.push(day.toISOString().slice(0, 10));
-        dates.value = values.join("\n");
-        say("휴무일과 공휴일은 목록에서 지운 뒤 저장해 주세요.");
-      });
+        for (const day = first; day <= last && values.length <= 150; day.setUTCDate(day.getUTCDate() + 1)) {
+          const weekday = day.getUTCDay();
+          if (weekday >= firstWeekday && weekday <= lastWeekday) values.push(day.toISOString().slice(0, 10));
+        }
+        if (values.length > 150) {
+          say("실습일이 150개를 넘습니다. 기간을 나눠 날짜를 입력해 주세요.", true);
+          return;
+        }
+        dates.value = state.calendarDates = values.join("\n");
+        say(values.length
+          ? "실습일 " + values.length + "개를 채웠습니다. 실제 휴무일을 목록에서 조정한 뒤 저장해 주세요."
+          : "차수 기간에 선택한 요일의 날짜가 없습니다.");
+      }
+      dates.addEventListener("input", () => { state.calendarDates = dates.value; });
+      const fill = layout("pr-row", button("차수 화~토 채우기", () => fillDates(2, 6)),
+        button("차수 월~금 채우기", () => fillDates(1, 5)));
       fill.hidden = !cohort.start_date || !cohort.end_date;
-      form.append(layout("pr-grid", field("실습 날짜 (한 줄에 하나)", dates), field("일지 마감 시각 (한국시간)", time)),
-        layout("pr-row", submit, fill, button("입력한 실습일 취소", event => save(true, event.currentTarget))));
-      const content = panel(el("h3", "일지를 작성할 날짜"),
-        el("p", "저장한 실습일이 각 실습생의 일지 목록에 표시됩니다. 제때 제출하지 못해도 제출할 수 있으며 기한 후 제출로 표시됩니다.", "pr-muted"), form);
+      dateForm.append(fill, field("실습 날짜 (한 줄에 하나)", dates),
+        layout("pr-row", dateSubmit, button("입력한 실습일 취소", event => saveDates(true, event.currentTarget))));
+
+      const { form: deadlineForm, submit: deadlineSubmit } = formSubmit("마감 기준 저장", control => run(async () => {
+        const delayDays = delay.valueAsNumber;
+        if (!Number.isInteger(delayDays) || delayDays < 0 || !time.value)
+          throw new Error("마감 일수와 시각을 입력해 주세요. 당일 마감은 0일입니다.");
+        await rpc(db, "set_diary_deadline", { p_cohort: cohort.id, p_delay_days: delayDays, p_cutoff: time.value });
+        await fetchBoard();
+        say("일지 마감 기준을 저장했습니다. 이 차수에 등록된 실습일의 마감이 갱신됐습니다.");
+      }, control));
+      deadlineForm.append(layout("pr-grid", field("실습일로부터 며칠 뒤", delay),
+        field("일지 마감 시각 (한국시간)", time)), deadlineSubmit);
+
+      const schedule = panel(el("h3", "실습일 등록"),
+        el("p", "센터 운영일인 화~토요일을 기준으로 채우거나, 실제 일정을 직접 입력할 수 있습니다.", "pr-muted"), dateForm);
+      const settings = panel(el("h3", "일지 마감 기준"),
+        el("p", "기본은 실습일 7일 뒤 오후 6시입니다. 0일은 실습일 당일을 뜻합니다. 기준을 바꾸면 이 차수에 등록된 실습일에도 적용됩니다.", "pr-muted"),
+        deadlineForm);
+      const content = layout("", schedule, settings);
       if (days.length) {
         const detail = el("details", null, "pr-detail");
         detail.append(el("summary", "등록한 실습일 " + days.length + "개"),
           table(["실습일", "일지 마감", "상태"], days, day => [day.day, dateLabel(day.due_at), day.cancelled ? "취소" : "등록"]));
-        content.append(detail);
+        content.append(panel(detail));
       }
       return content;
     }

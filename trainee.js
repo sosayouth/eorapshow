@@ -100,11 +100,48 @@
     render();
   }
 
+  function dueLabel(item, prefix) {
+    const time = el("time", dateLabel(item.due_at));
+    time.dateTime = item.due_at;
+    if (item.day) time.dataset.diaryDay = item.day;
+    const label = el("span", null, "pr-muted");
+    label.append(prefix, time);
+    if (item.late) label.append(" · 제출 당시 기한 후");
+    return label;
+  }
+
+  let checkingDeadlines = false;
+  async function syncDiaryDeadlines() {
+    const person = state.person;
+    const labels = box.querySelectorAll("time[data-diary-day]");
+    if (document.hidden || !person || !labels.length || checkingDeadlines) return;
+    checkingDeadlines = true;
+    try {
+      const current = await rpc(state.db, "student", { p_person: person.id });
+      if (state.person !== person) return;
+      const dates = new Map(current.items.filter(item => item.day).map(item => [item.day, item.due_at]));
+      // Update the visible dates in place so the student's editor keeps its current input.
+      box.querySelectorAll("time[data-diary-day]").forEach(time => {
+        const due = dates.get(time.dataset.diaryDay);
+        if (!due || time.dateTime === due) return;
+        time.dateTime = due;
+        time.textContent = dateLabel(due);
+      });
+      state.progress.items.forEach(item => {
+        if (item.day && dates.has(item.day)) item.due_at = dates.get(item.day);
+      });
+    } catch {
+      // Retry the background refresh when the page is focused or the next interval runs.
+    } finally {
+      checkingDeadlines = false;
+    }
+  }
+
   function workCard(item, title) {
     const label = item.day || item.title + (item.individual ? " · 개별 배정" : "");
     const card = el("article", null, "pr-card pr-row pr-between");
     const detail = layout("", el("p", title || label, "pr-card-title"),
-      el("span", "기한 " + dateLabel(item.due_at) + (item.late ? " · 기한 후 제출" : ""), "pr-muted"));
+      dueLabel(item, "기한 "));
     const actions = layout("pr-row", badge(item.day && item.day > state.progress.today && !item.work_id ? "scheduled" : item.status));
     const writable = state.progress.can_write && (!item.day || item.day <= state.progress.today);
     if (item.work_id || writable) {
@@ -151,6 +188,7 @@
         message(notice, "");
         render();
         main.focus();
+        syncDiaryDeadlines();
       }, page === key);
       if (page === key) tab.setAttribute("aria-current", "page");
       nav.append(tab);
@@ -194,10 +232,10 @@
       main.focus();
     }, event.currentTarget));
     const head = layout("pr-row pr-between", el("h1", work.title + (work.day ? " · " + work.day : "")), back);
-    const context = layout("pr-row", badge(work.status), el("span", "제출기한 " + dateLabel(work.due_at), "pr-muted"));
+    const context = layout("pr-row", badge(work.status), dueLabel(work, "제출기한 "));
     const header = panel(head, context);
     if (work.instructions) header.append(el("p", work.instructions, "pr-note pr-safe-text"));
-    const versions = versionList(state.db, work, notice);
+    const versions = versionList(state.db, work, notice, state.person);
     if (!work.can_write) {
       state.editor = null;
       show(header, panel(versions));
@@ -362,6 +400,10 @@
     event.preventDefault();
     event.returnValue = "";
   });
+
+  document.addEventListener("visibilitychange", syncDiaryDeadlines);
+  window.addEventListener("focus", syncDiaryDeadlines);
+  window.setInterval(syncDiaryDeadlines, 60000);
 
   async function start() {
     if (!config?.url || !config?.publishableKey || !window.supabase) {
