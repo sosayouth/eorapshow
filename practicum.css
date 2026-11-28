@@ -42,6 +42,10 @@
 .pr-stat strong { display: block; font-size: 1.14rem; color: var(--pr-accent); }
 .pr-time-total { font-size: 1.15rem; font-weight: 720; }
 .pr-time-meter { display: block; width: 100%; height: .9rem; margin: .4rem 0 .7rem; accent-color: #17675c; }
+.pr-roster-registration { margin: 1rem 0 1.35rem; padding: 1rem; border: 1px solid #dce6e8; border-radius: 12px; }
+.pr-roster-registration > .pr-row { margin-bottom: .95rem; }
+.pr-roster-registration form > .pr-grid { margin: .65rem 0; }
+.pr-roster-registration form h4 { margin: .85rem 0 .55rem; }
 .pr-print-actions { margin: .9rem 0; }
 .pr-print-only { display: none; }
 .pr-app [hidden], .pr-shell [hidden], .pr-header [hidden] { display: none !important; }

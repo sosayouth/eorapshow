@@ -122,7 +122,8 @@
     box.replaceChildren(root);
     const state = {
       board: null, tab: initialTab, learner: "", kind: "", filter: "", page: 0,
-      link: null, calendarDates: "", rosterText: "", invitee: ""
+      link: null, calendarDates: "", rosterText: "", invitee: "",
+      rosterMode: "direct", rosterProfile: null, profileRequest: null
     };
     const say = (text, error) => message(notice, text, error);
     async function run(task, control) {
@@ -148,6 +149,8 @@
         const item = button(title, () => {
           state.tab = key;
           state.link = null;
+          state.rosterProfile = null;
+          state.profileRequest = null;
           say("");
           render();
         }, state.tab === key);
@@ -267,6 +270,73 @@
       body.append(panel(el("h3", "피드백 작성"), form));
     }
 
+    async function registerStudents(rows, reviewer) {
+      const result = await rpc(db, "register_roster", { p_cohort: cohort.id, p_reviewer: reviewer, p_rows: rows });
+      state.rosterText = "";
+      await fetchBoard();
+      say(result.added + "명을 등록했습니다. 기존 등록 " + result.existing + "명은 건너뛰었습니다. 명단에서 초대할 실습생을 선택해 주세요.");
+    }
+
+    function registrationPanel(roster, reviewers) {
+      const modes = [["direct", "직접 입력"], ["excel", "엑셀 업로드"], ["paste", "명단 붙여넣기"]];
+      const modeBar = layout("pr-row");
+      modes.forEach(([key, title]) => {
+        const tab = button(title, () => {
+          state.rosterMode = key;
+          state.rosterProfile = null;
+          state.profileRequest = null;
+          say("");
+          render();
+        }, state.rosterMode === key);
+        tab.setAttribute("aria-pressed", String(state.rosterMode === key));
+        modeBar.append(tab);
+      });
+      const { directForm, excelForm } = window.EorapPracticumRoster;
+      let form;
+      if (state.rosterMode === "excel") {
+        form = excelForm({ cohort, reviewers, people: roster, today: state.board.today, table, run, save: registerStudents });
+      } else if (state.rosterMode === "paste") {
+        form = rosterForm(reviewers);
+      } else {
+        form = directForm({
+          today: state.board.today, profile: state.rosterProfile, reviewers, run,
+          cancel: () => {
+            state.rosterProfile = null;
+            state.profileRequest = null;
+            render();
+          },
+          save: async (values, reviewer, profile) => {
+            if (!profile) {
+              await registerStudents([values], reviewer);
+              return;
+            }
+            await rpc(db, "update_roster_profile", {
+              p_cohort: cohort.id, p_person: profile.person_id, p_reviewer: reviewer, p_profile: values
+            });
+            state.rosterProfile = null;
+            state.profileRequest = null;
+            await fetchBoard();
+            say("기본정보를 저장했습니다.");
+          }
+        });
+      }
+      const region = layout("pr-roster-registration", el("h3", "실습생 등록·기본정보"), modeBar, form);
+      region.id = "pr-roster-registration";
+      region.tabIndex = -1;
+      return region;
+    }
+
+    async function editProfile(person) {
+      const request = { person: person.id };
+      state.profileRequest = request;
+      const profile = await rpc(db, "roster_profile", { p_cohort: cohort.id, p_person: person.id });
+      if (state.profileRequest !== request) return;
+      state.rosterProfile = profile;
+      state.rosterMode = "direct";
+      render();
+      body.querySelector("#pr-roster-registration")?.focus();
+    }
+
     function rosterForm(reviewers) {
       const area = el("textarea");
       area.value = state.rosterText;
@@ -279,10 +349,7 @@
       const { form, submit } = formSubmit("명단 등록", control => run(async () => {
         const rows = parseRoster(area.value);
         if (!rows.length) throw new Error("등록할 실습생 명단을 입력해 주세요.");
-        const result = await rpc(db, "register_roster", { p_cohort: cohort.id, p_reviewer: reviewer.value, p_rows: rows });
-        state.rosterText = "";
-        await fetchBoard();
-        say(result.added + "명을 등록했습니다. 기존 등록 " + result.existing + "명은 건너뛰었습니다. 명단에서 초대할 실습생을 선택해 주세요.");
+        await registerStudents(rows, reviewer.value);
       }, control));
       form.append(el("h4", "실습생 명단 등록"),
         el("p", "이름과 개인·학교 이메일을 한 줄에 한 명씩 입력하거나 두 열을 복사해 붙여넣으세요.", "pr-muted"),
@@ -294,11 +361,12 @@
       const { roster, reviewers } = state.board;
       const content = panel(el("h3", "실습생 계정과 지도자"),
         el("p", "개인 또는 학교 이메일로 링크를 발급해 해당 실습생에게 직접 전달합니다. 재발급 링크에서도 비밀번호를 설정할 수 있습니다.", "pr-muted"));
-      if (reviewers.length) content.append(rosterForm(reviewers));
+      if (reviewers.length || state.rosterProfile) content.append(registrationPanel(roster, reviewers));
       else content.append(el("p", "사용자·권한에서 같은 기관의 실습지도자 또는 기관관리자를 활성화해 주세요.", "pr-note"));
       if (!roster.length) return content;
-      content.append(table(["실습생", "연결 이메일", "지도자", "접속 상태"], roster, person => [
-        person.name, person.email, person.reviewer_name || reviewers.find(r => r.id === person.reviewer_id)?.label, badge(person.account)
+      content.append(table(["실습생", "연결 이메일", "지도자", "접속 상태", "기본정보"], roster, person => [
+        person.name, person.email, person.reviewer_name || reviewers.find(r => r.id === person.reviewer_id)?.label, badge(person.account),
+        button("기본정보 수정", event => run(() => editProfile(person), event.currentTarget))
       ]));
       const available = roster.filter(p => p.practice_status !== "completed");
       if (!available.length || !reviewers.length) {
