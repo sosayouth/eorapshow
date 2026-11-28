@@ -3,7 +3,7 @@
   const labels = {
     missing: "미작성", draft: "임시저장", submitted: "검토 대기",
     changes: "보완 요청", reviewed: "검토 완료", unlinked: "미연결",
-    invited: "초대 발급", scheduled: "예정", active: "연결 완료", revoked: "접근 중지"
+    registered: "초대 대기", invited: "초대 발급", scheduled: "예정", active: "연결 완료", revoked: "접근 중지"
   };
   const clock = new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
@@ -72,9 +72,14 @@
     }
     return data;
   }
-  async function download(db, key, name) {
+  async function readAttachment(db, key) {
     const { data, error } = await db.storage.from("practicum-submissions").download(key);
     if (error) throw new Error("첨부파일을 열지 못했습니다.");
+    return data;
+  }
+
+  async function download(db, key, name) {
+    const data = await readAttachment(db, key);
     const url = URL.createObjectURL(data);
     const link = el("a");
     link.href = url;
@@ -82,6 +87,22 @@
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
+  function formatMinutes(minutes) {
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (rest === 0) return hours + "시간";
+    return (hours ? hours + "시간 " : "") + rest + "분";
+  }
+
+  function diaryMinutes(start, end, rest) {
+    const clock = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+    const pause = rest || "0";
+    if (!clock.test(start) || !clock.test(end) || !/^\d{1,4}$/.test(pause)) return null;
+    const toMinutes = value => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+    const duration = toMinutes(end) - toMinutes(start);
+    return duration > 0 && Number(pause) <= duration ? duration - Number(pause) : null;
+  }
+
   function textFields(fields, body) {
     return fields.map(def => {
       const section = el("section", null, "pr-body-field");
@@ -141,7 +162,8 @@
       ["실습생", item.person_name],
       ["실습일", formatPaperDate(item.day)],
       ["실습기간", period + week],
-      ["실습시간", "________ 시간"],
+      ["실습시간", version.outcome === "reviewed" && version.minutes != null
+        ? formatMinutes(version.minutes) : "________ 시간"],
       ["제출일", formatPaperDate(version.submitted_at) + " · " + version.number + "차 제출"]
     ], "pr-print-meta");
     const activityKeys = new Set(["goal", "activities", "observation"]);
@@ -172,10 +194,8 @@
     return [metadata, printTable(rows, "pr-print-report")];
   }
 
-  let clearPrint;
-  function printVersion(item, version, cohort) {
-    clearPrint?.();
-    const block = el("article", null, "pr-print-only");
+  function printDocument(item, version, cohort) {
+    const block = el("article", null, "pr-print-document");
     const formNumber = item.title.match(/\[서식 \d+\]$/)?.[0];
     const headline = formNumber ? item.title.slice(0, -formNumber.length).trim() : item.title;
     const header = el("header", null, "pr-print-header");
@@ -184,12 +204,18 @@
     top.append(approvalTable());
     header.append(top, el("h1", headline));
     block.append(header, ...(item.day ? printDiary(item, version, cohort) : printReport(item, version)));
+    return block;
+  }
 
+  let clearPrint;
+  function showPrint(block, release = () => {}) {
+    clearPrint?.();
     document.body.append(block);
     document.body.classList.add("pr-printing");
     clearPrint = () => {
       window.removeEventListener("afterprint", clearPrint);
       block.remove();
+      release();
       document.body.classList.remove("pr-printing");
       clearPrint = undefined;
     };
@@ -200,6 +226,79 @@
       throw error;
     }
   }
+  function printVersion(item, version, cohort) {
+    showPrint(layout("pr-print-only", printDocument(item, version, cohort)));
+  }
+
+  const pdfDist = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/";
+  async function printAttachment(blob, objectUrls) {
+    const pdf = await import(pdfDist + "legacy/build/pdf.min.mjs");
+    pdf.GlobalWorkerOptions.workerSrc = pdfDist + "legacy/build/pdf.worker.min.mjs";
+    const loading = pdf.getDocument({
+      data: new Uint8Array(await blob.arrayBuffer()),
+      cMapUrl: pdfDist + "cmaps/", cMapPacked: true,
+      standardFontDataUrl: pdfDist + "standard_fonts/", wasmUrl: pdfDist + "wasm/",
+      isEvalSupported: false
+    });
+    try {
+      const documentPdf = await loading.promise;
+      const sheets = [];
+      for (let n = 1; n <= documentPdf.numPages; n += 1) {
+        const page = await documentPdf.getPage(n);
+        const pageSize = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, 1400 / pageSize.width, 2000 / pageSize.height);
+        const viewport = page.getViewport({ scale });
+        const canvas = el("canvas");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        await page.render({ canvas, viewport, intent: "print" }).promise;
+        const imageBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.93));
+        canvas.width = canvas.height = 0;
+        page.cleanup();
+        if (!imageBlob) throw new Error("PDF 페이지를 인쇄용으로 만들지 못했습니다.");
+        const image = el("img");
+        const url = URL.createObjectURL(imageBlob);
+        objectUrls.push(url);
+        image.alt = "첨부 PDF " + n + "쪽";
+        image.src = url;
+        await image.decode();
+        sheets.push(layout("pr-print-attachment", image));
+      }
+      return sheets;
+    } finally {
+      await loading.destroy();
+    }
+  }
+
+  async function printBundle(db, entries, cohort) {
+    if (!entries.length) throw new Error("모아 인쇄할 제출본이 없습니다.");
+    const output = layout("pr-print-only");
+    const objectUrls = [];
+    const omitted = [];
+    const release = () => objectUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
+    try {
+      for (const { item, version } of entries) {
+        const paper = printDocument(item, version, cohort);
+        output.append(paper);
+        if (!version.attachment_key) continue;
+        try {
+          const file = await readAttachment(db, version.attachment_key);
+          const pages = await printAttachment(file, objectUrls);
+          output.append(...pages);
+        } catch {
+          const name = version.attachment_name || item.title;
+          omitted.push(name);
+          paper.append(el("p", "첨부 원본을 이 출력에 불러오지 못했습니다. 제출 이력에서 PDF 원본을 내려받아 출력해 주세요."));
+        }
+      }
+      showPrint(output, release);
+      return omitted;
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
   function versionList(db, item, notice, cohort) {
     const section = el("section");
     if (item.versions.length === 0) return section;
@@ -214,6 +313,8 @@
         detail.append(el("p", labels[version.outcome] + " · " + dateLabel(version.reviewed_at), "pr-muted"),
           el("p", version.feedback, "pr-safe-text pr-note"));
       }
+      if (item.day && version.minutes != null) detail.append(el("p",
+        (version.outcome === "reviewed" ? "확인 실습시간 " : "입력 실습시간 ") + formatMinutes(version.minutes), "pr-note"));
       detail.append(...textFields(item.fields, version.body));
       if (version.attachment_key) detail.append(button("PDF 내려받기 · " + version.attachment_name, async event => {
         event.currentTarget.disabled = true;
@@ -226,5 +327,5 @@
     });
     return section;
   }
-  window.EorapPracticum = { labels, el, layout, button, field, input, select, badge, panel, message, rpc, dateLabel, download, versionList };
+  window.EorapPracticum = { labels, el, layout, button, field, input, select, badge, panel, message, rpc, dateLabel, download, versionList, formatMinutes, diaryMinutes, printBundle };
 })();

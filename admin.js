@@ -201,11 +201,23 @@
     box.append(el("p","미등록 기관은 0건과 구분됩니다. 기관 간 동일 인원이 있을 수 있어 합계에 중복이 생길 수 있습니다.","muted"));
   }
   function cohortView(box){
-    toolbar(box,"실습 차수",()=>openEditor("cohorts"));
+    const practicum=window.EorapPracticumReview;
+    const centers=centerChoices().filter(([id])=>isGlobal()||id===state.profile.institution_id);
+    if(canManage()&&practicum){
+      const top=el("div",undefined,"toolbar");
+      top.append(el("h2","실습 차수"),button("차수 개설·초대",()=>{
+        const institution=centers.some(([id])=>id===state.filter)?state.filter:centers[0]?.[0];
+        practicum.create({db:state.db,box,centers,institution,onBack:load});
+      },"btn primary"));
+      box.append(top);
+    } else toolbar(box,"실습 차수",()=>openEditor("cohorts"));
     table(box,["기관","연도","차수","시작일","종료일","관리"],state.rows,c=>{
       const settings=canEdit()?actions(()=>openEditor("cohorts",c)):"조회 전용";
-      if(canEdit()&&window.EorapPracticumReview)settings.append(button("제출 검토",()=>{
-        window.EorapPracticumReview.mount({db:state.db,box,cohort:c,onBack:load});
+      if(canManage()&&practicum)settings.append(button("차수 준비",()=>{
+        practicum.mount({db:state.db,box,cohort:c,onBack:load,centers,initialTab:"prepare"});
+      }));
+      if(canEdit()&&practicum)settings.append(button("제출 검토",()=>{
+        practicum.mount({db:state.db,box,cohort:c,onBack:load,centers});
       }));
       return [centerName(c.institution_id),c.year,c.name,c.start_date||"—",c.end_date||"—",settings];
     });

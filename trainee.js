@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const ui = window.EorapPracticum;
-  const { el, layout, button, field, input, select, badge, panel, message, rpc, dateLabel, download, versionList } = ui;
+  const { el, layout, button, field, input, select, badge, panel, message, rpc, dateLabel, download, versionList, formatMinutes, diaryMinutes } = ui;
   const $ = id => document.getElementById(id);
   const box = $("trainee-content");
   const notice = $("trainee-notice");
@@ -114,11 +114,18 @@
   async function syncDiaryDeadlines() {
     const person = state.person;
     const labels = box.querySelectorAll("time[data-diary-day]");
-    if (document.hidden || !person || !labels.length || checkingDeadlines) return;
+    if (document.hidden || !person || (!labels.length && !box.querySelector("#trainee-today")) || checkingDeadlines) return;
     checkingDeadlines = true;
     try {
       const current = await rpc(state.db, "student", { p_person: person.id });
       if (state.person !== person) return;
+      const today = box.querySelector("#trainee-today");
+      if (today) {
+        const changed = JSON.stringify(state.progress) !== JSON.stringify(current);
+        state.progress = current;
+        if (changed) today.replaceChildren(...showToday(current.items));
+        return;
+      }
       const dates = new Map(current.items.filter(item => item.day).map(item => [item.day, item.due_at]));
       // Update the visible dates in place so the student's editor keeps its current input.
       box.querySelectorAll("time[data-diary-day]").forEach(time => {
@@ -127,9 +134,7 @@
         time.dateTime = due;
         time.textContent = dateLabel(due);
       });
-      state.progress.items.forEach(item => {
-        if (item.day && dates.has(item.day)) item.due_at = dates.get(item.day);
-      });
+      state.progress = current;
     } catch {
       // Retry the background refresh when the page is focused or the next interval runs.
     } finally {
@@ -150,25 +155,64 @@
       actions.append(button(label, event => run(() => open(item), event.currentTarget), !item.work_id));
     }
     card.append(detail, actions);
+    if (item.day) card.dataset.diaryDay = item.day;
     return card;
   }
 
+  const koreaDate = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit"
+  });
+
+  function dueDays(item, today) {
+    const calendarDay = koreaDate.format(new Date(item.due_at));
+    return Math.round((Date.parse(calendarDay) - Date.parse(today)) / 86400000);
+  }
+
+  function urgentLabel(item, days) {
+    if (Date.parse(item.due_at) < Date.now() || days < 0) return "마감 지남";
+    if (days === 0) return "오늘 마감";
+    return "제출까지 " + days + "일";
+  }
+
   function showToday(items) {
-    const { today } = state.progress;
-    const current = items.find(item => item.day === today);
-    const due = items.filter(item => !item.day || item.day <= today);
-    const stats = [
-      ["일지 제출", due.filter(i => i.day && i.version > 0).length + " / " + due.filter(i => i.day).length + "일"],
-      ["보고서 제출", due.filter(i => !i.day && i.version > 0).length + " / " + due.filter(i => !i.day).length + "건"],
-      ["보완 요청", due.filter(i => i.status === "changes").length + "건"]
+    const { today, can_write: canWrite, target_minutes: target } = state.progress;
+    const eligible = items.filter(item => !item.day || item.day <= today);
+    const current = eligible.find(item => item.day === today);
+    const corrections = canWrite ? eligible.filter(item => item.status === "changes") : [];
+    const unfinished = canWrite ? eligible.filter(item => ["missing", "draft"].includes(item.status)) : [];
+    const urgent = unfinished.filter(item => item !== current && dueDays(item, today) <= 2);
+    const actions = [
+      ...corrections.map(item => workCard(item, (item.day ? item.day + " 실습일지" : item.title) + " · 보완 요청")),
+      ...(unfinished.includes(current) ? [workCard(current, "오늘 실습일지")] : []),
+      ...urgent.map(item => workCard(item, (item.day ? item.day + " 실습일지" : item.title) +
+        " · " + urgentLabel(item, dueDays(item, today))))
     ];
-    const upcoming = due.filter(i => !i.day && ["missing", "draft", "changes"].includes(i.status)).slice(0, 4);
+    const confirmed = eligible.filter(item => item.day && item.status === "reviewed")
+      .reduce((total, item) => total + (item.minutes ?? 0), 0);
+    const awaiting = eligible.filter(item => item.day && item.status === "submitted")
+      .reduce((total, item) => total + (item.minutes ?? 0), 0);
+    const time = panel(el("h2", "내 실습시간"), el("p", "확인 " + formatMinutes(confirmed) +
+      " / 목표 " + formatMinutes(target), "pr-time-total"));
+    const meter = el("progress", null, "pr-time-meter");
+    meter.max = target;
+    meter.value = Math.min(confirmed, target);
+    meter.setAttribute("aria-label", "목표 대비 확인된 실습시간");
+    time.append(meter);
+    if (awaiting) time.append(el("p", "검토 대기 " + formatMinutes(awaiting), "pr-muted"));
+    const stats = [
+      ["일지 제출", eligible.filter(i => i.day && i.version > 0).length + " / " + eligible.filter(i => i.day).length + "일"],
+      ["보고서 제출", eligible.filter(i => !i.day && i.version > 0).length + " / " + eligible.filter(i => !i.day).length + "건"],
+      ["보완 요청", eligible.filter(i => i.status === "changes").length + "건"]
+    ];
+    const future = unfinished.filter(item => !item.day && !urgent.includes(item)).slice(0, 4);
     return [
-      panel(el("h2", "오늘의 실습일지"), current ? workCard(current) : el("p", today + "은 등록된 실습일이 없습니다.", "pr-muted")),
+      panel(el("h2", "지금 할 일"), ...(actions.length ? actions : [el("p", "지금 처리할 제출·보완 항목이 없습니다.", "pr-muted")])),
+      ...(current && !actions.some(card => card.dataset.diaryDay === today)
+        ? [panel(el("h2", "오늘의 실습일지"), workCard(current))] : []),
+      time,
       panel(el("h2", "내 작성 현황"), layout("pr-grid", ...stats.map(([title, value]) =>
         layout("pr-stat", el("span", title), el("strong", value))))),
-      panel(el("h2", "남은 보고서"), ...(upcoming.length ? upcoming.map(item => workCard(item)) :
-        [el("p", "작성하거나 보완할 보고서가 없습니다.", "pr-muted")]))
+      ...(future.length ? [panel(el("h2", "예정된 보고서"), ...future.map(item => workCard(item)))] : [])
     ];
   }
 
@@ -207,7 +251,11 @@
       title.append(field("실습 차수", group));
     }
     const views = {
-      today: () => showToday(progress.items),
+      today: () => {
+        const today = layout("", ...showToday(progress.items));
+        today.id = "trainee-today";
+        return [today];
+      },
       diaries: () => [showWorkList(progress.items, i => i.day, "등록된 실습일이 없습니다.")],
       reports: () => [showWorkList(progress.items, i => !i.day, "배정된 보고서가 없습니다.")],
       feedback: () => [showWorkList(progress.items, i => i.status === "changes" || i.status === "reviewed" ||
@@ -290,6 +338,37 @@
       clearTimeout(timer);
       timer = setTimeout(() => save().catch(() => {}), 900);
     }
+    function timeValues() {
+      return ["start_time", "end_time", "break_minutes"].map(key => controls.get(key)?.value || "");
+    }
+    if (work.day) {
+      const timeInputs = [
+        ["start_time", "시작 시각", input("time", work.draft.start_time || "")],
+        ["end_time", "종료 시각", input("time", work.draft.end_time || "")],
+        ["break_minutes", "휴게시간 (분)", input("number", work.draft.break_minutes ?? "0")]
+      ];
+      const rest = timeInputs[2][2];
+      rest.min = "0";
+      rest.step = "1";
+      const total = el("p", null, "pr-note");
+      total.setAttribute("role", "status");
+      const showDuration = () => {
+        const minutes = diaryMinutes(...timeValues());
+        total.textContent = minutes == null
+          ? "시작·종료 시각을 입력하면 휴게시간을 빼고 계산합니다."
+          : "당일 실습시간 " + formatMinutes(minutes);
+      };
+      const fields = timeInputs.map(([key, label, control]) => {
+        controls.set(key, control);
+        control.addEventListener("input", () => {
+          showDuration();
+          markChanged();
+        });
+        return field(label, control);
+      });
+      showDuration();
+      inputs.append(el("h3", "실습시간"), layout("pr-grid", ...fields), total);
+    }
     work.fields.forEach(def => {
       const area = el("textarea");
       area.value = work.draft[def.key] || "";
@@ -357,6 +436,14 @@
         if (empty) {
           message(notice, empty.label + " 항목을 작성해 주세요.", true);
           controls.get(empty.key).focus();
+          return;
+        }
+      }
+      if (work.day) {
+        const [start, end, rest] = timeValues();
+        if ((start || end || (rest && rest !== "0")) && diaryMinutes(start, end, rest) == null) {
+          message(notice, "시작·종료 시각과 휴게시간을 확인해 주세요.", true);
+          controls.get("start_time").focus();
           return;
         }
       }

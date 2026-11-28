@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const { el, layout, button, field, input, select, badge, panel, message, rpc, dateLabel, versionList } = window.EorapPracticum;
+  const { el, layout, button, field, input, select, badge, panel, message, rpc, dateLabel, versionList, printBundle } = window.EorapPracticum;
   const names = {
     missing: "미작성", draft: "임시저장", submitted: "검토 대기",
     changes: "보완 요청", reviewed: "검토 완료", scheduled: "예정"
@@ -40,14 +40,90 @@
     return layout("pr-scroll", node);
   }
 
-  function mount({ db, box, cohort, onBack }) {
+  const cohortFields = "id,institution_id,year,name,start_date,end_date,target_hours";
+
+  function cohortForm({ centers, institution, record, label, onSave }) {
+    const center = select(centers, institution);
+    center.disabled = !!record;
+    const name = input("text", record?.name || "");
+    name.required = true;
+    name.maxLength = 80;
+    const start = input("date", record?.start_date || "");
+    const end = input("date", record?.end_date || "");
+    start.required = end.required = !record;
+    const hours = input("number", String(record?.target_hours ?? 130));
+    hours.min = "1";
+    hours.step = "1";
+    hours.required = true;
+    const { form, submit } = formSubmit(label, control => onSave({
+      institution_id: record?.institution_id || center.value,
+      year: record?.year ?? Number(start.value.slice(0, 4)), name: name.value.trim(),
+      start_date: start.value || null, end_date: end.value || null, target_hours: hours.valueAsNumber
+    }, control));
+    form.append(layout("pr-grid", field("기관", center), field("차수명", name),
+      field("시작일", start), field("종료일", end), field("목표 실습시간 (시간)", hours)), submit);
+    return form;
+  }
+
+  async function saveCohort(db, values, record) {
+    if (!values.institution_id || !values.name || (!record && (!values.start_date || !values.end_date)) ||
+      (values.start_date && values.end_date && values.start_date > values.end_date) ||
+      !Number.isInteger(values.target_hours) || values.target_hours < 1) {
+      throw new Error("기관, 차수명, 실습기간과 목표시간을 확인해 주세요.");
+    }
+    const records = db.from("cohorts");
+    const action = record ? records.update(values).eq("id", record.id) : records.insert(values);
+    const { data, error } = await action.select(cohortFields).single();
+    if (error?.code === "23505") throw new Error("같은 기관과 연도에 같은 이름의 차수가 있습니다. 차수 목록에서 해당 차수를 선택해 주세요.");
+    if (error || !data) throw new Error("차수를 저장하지 못했습니다. 기관과 기간을 확인해 주세요.");
+    return data;
+  }
+
+  function create({ db, box, centers, institution, onBack }) {
+    const notice = el("p");
+    notice.hidden = true;
+    const form = cohortForm({
+      centers, institution, label: "차수 만들기", onSave: async (values, control) => {
+        control.disabled = true;
+        message(notice, "");
+        try {
+          const data = await saveCohort(db, values);
+          mount({ db, box, cohort: data, onBack, centers, initialTab: "prepare" });
+        } catch (error) { message(notice, error.message, true); }
+        finally { control.disabled = false; }
+      }
+    });
+    box.replaceChildren(layout("pr-app",
+      layout("pr-row pr-between", el("h2", "차수 개설·초대"), button("차수 목록", onBack)), notice,
+      panel(el("h3", "차수와 실습기간"), form)));
+  }
+
+  function parseRoster(value) {
+    return value.split(/\r?\n/).flatMap((line, index) => {
+      if (!line.trim()) return [];
+      const columns = line.includes("\t") ? line.split("\t") :
+        line.includes(",") ? line.split(",") : line.trim().match(/^(.+?)\s+(\S+)$/)?.slice(1);
+      const [name, email] = (columns || []).map(cell => cell.trim());
+      if (/^(이름|성명)$/.test(name) && /^이메일(?:\s*주소)?$/.test(email)) return [];
+      if (columns?.length !== 2 || !name || name.length > 80 ||
+        !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        throw new Error((index + 1) + "번째 줄에 이름과 이메일을 입력해 주세요.");
+      return [{ name, email: email.toLowerCase() }];
+    });
+  }
+
+  function mount({ db, box, cohort, onBack, centers = [], initialTab = "progress" }) {
     const notice = el("p");
     notice.hidden = true;
     const body = el("div");
-    const root = layout("pr-app", layout("pr-row pr-between", el("h2", cohort.name + " · 제출 검토"),
+    const heading = el("h2");
+    const root = layout("pr-app", layout("pr-row pr-between", heading,
       button("차수 목록", onBack)), notice, body);
     box.replaceChildren(root);
-    const state = { board: null, tab: "progress", learner: "", kind: "", filter: "", page: 0, link: null, calendarDates: "" };
+    const state = {
+      board: null, tab: initialTab, learner: "", kind: "", filter: "", page: 0,
+      link: null, calendarDates: "", rosterText: "", invitee: ""
+    };
     const say = (text, error) => message(notice, text, error);
     async function run(task, control) {
       if (control) control.disabled = true;
@@ -62,7 +138,10 @@
     }
     function render() {
       const tabs = [["progress", "제출 현황"]];
-      if (state.board.can_manage) tabs.push(["access", "실습생 계정"], ["calendar", "실습일 설정"], ["reports", "보고서 배정"]);
+      if (state.board.can_manage) tabs.push(["prepare", "차수 준비"], ["access", "실습생 계정"],
+        ["calendar", "실습일 설정"], ["reports", "보고서 배정"]);
+      if (!tabs.some(([key]) => key === state.tab)) state.tab = "progress";
+      heading.textContent = cohort.name + (state.tab === "prepare" ? " · 차수 준비" : " · 제출 검토");
       const nav = el("nav", null, "pr-row pr-nav");
       nav.setAttribute("aria-label", "실습 차수 제출 관리");
       tabs.forEach(([key, title]) => {
@@ -75,8 +154,25 @@
         if (state.tab === key) item.setAttribute("aria-current", "page");
         nav.append(item);
       });
-      const view = { progress, access, calendar, reports }[state.tab];
+      const view = { progress, prepare, access, calendar, reports }[state.tab];
       body.replaceChildren(nav, view());
+    }
+
+    function prepare() {
+      const centerName = centers.find(([id]) => id === cohort.institution_id)?.[1] || cohort.institution_id;
+      const available = [[cohort.institution_id, centerName]];
+      const period = cohortForm({
+        centers: available, institution: cohort.institution_id, record: cohort, label: "차수 저장",
+        onSave: (values, control) => run(async () => {
+          if (state.board.days.some(date => !date.cancelled &&
+            ((values.start_date && date.day < values.start_date) || (values.end_date && date.day > values.end_date))))
+            throw new Error("기간을 변경하려면 차수 밖에 남는 실습일을 먼저 조정해 주세요.");
+          cohort = await saveCohort(db, values, cohort);
+          await fetchBoard();
+          say("차수와 목표 실습시간을 저장했습니다.");
+        }, control)
+      });
+      return layout("", panel(el("h3", "차수와 실습기간"), period), calendar(), reports(), access());
     }
 
     function progress() {
@@ -109,10 +205,19 @@
         layout("pr-grid", field("실습생", student), field("종류", kind), field("상태", status)),
         layout("pr-grid", ...stats.map(([title, value]) =>
           layout("pr-stat", el("span", title), el("strong", value)))));
+      if (state.learner && items.some(item => item.person_id === state.learner && item.can_review)) {
+        content.append(layout("pr-row pr-print-actions", button("일지·보고서 모아 인쇄", event => run(async () => {
+          say("선택한 실습생의 제출본과 첨부 PDF를 준비하고 있습니다.");
+          const entries = await rpc(db, "print_bundle", { p_person: state.learner });
+          const omitted = await printBundle(db, entries, cohort);
+          say(omitted.length ? "첨부 PDF " + omitted.length + "건을 불러오지 못했습니다. 제출 이력에서 원본을 내려받아 주세요."
+            : "제출본을 날짜순으로 묶었습니다. 인쇄 또는 PDF로 저장해 주세요.", omitted.length > 0);
+        }, event.currentTarget))));
+      }
       if (!matching.length) {
         content.append(el("p", roster.length
           ? "조회 조건에 해당하는 항목이 없습니다." : canManage
-            ? "이 차수에 실습생이 없습니다. ‘기관별 인원’에서 실습생을 등록하고 차수를 지정해 주세요."
+            ? "이 차수에 실습생이 없습니다. ‘차수 준비’에서 명단을 등록해 주세요."
             : "이 차수에 배정된 실습생이 없습니다.", "pr-muted"));
         return content;
       }
@@ -162,24 +267,45 @@
       body.append(panel(el("h3", "피드백 작성"), form));
     }
 
+    function rosterForm(reviewers) {
+      const area = el("textarea");
+      area.value = state.rosterText;
+      area.required = true;
+      area.placeholder = "김실습, trainee@example.com";
+      area.addEventListener("input", () => { state.rosterText = area.value; });
+      const choices = reviewers.length === 1 ? [] : [["", "선택"]];
+      const reviewer = select([...choices, ...reviewers.map(row => [row.id, row.label])]);
+      reviewer.required = true;
+      const { form, submit } = formSubmit("명단 등록", control => run(async () => {
+        const rows = parseRoster(area.value);
+        if (!rows.length) throw new Error("등록할 실습생 명단을 입력해 주세요.");
+        const result = await rpc(db, "register_roster", { p_cohort: cohort.id, p_reviewer: reviewer.value, p_rows: rows });
+        state.rosterText = "";
+        await fetchBoard();
+        say(result.added + "명을 등록했습니다. 기존 등록 " + result.existing + "명은 건너뛰었습니다. 명단에서 초대할 실습생을 선택해 주세요.");
+      }, control));
+      form.append(el("h4", "실습생 명단 등록"),
+        el("p", "이름과 개인·학교 이메일을 한 줄에 한 명씩 입력하거나 두 열을 복사해 붙여넣으세요.", "pr-muted"),
+        field("명단 붙여넣기", area), field("실습지도자", reviewer), submit);
+      return form;
+    }
+
     function access() {
       const { roster, reviewers } = state.board;
       const content = panel(el("h3", "실습생 계정과 지도자"),
         el("p", "개인 또는 학교 이메일로 링크를 발급해 해당 실습생에게 직접 전달합니다. 재발급 링크에서도 비밀번호를 설정할 수 있습니다.", "pr-muted"));
-      if (!roster.length) {
-        content.append(el("p", "‘기관별 인원’에서 이 차수에 실습생을 먼저 등록해 주세요."));
-        return content;
-      }
+      if (reviewers.length) content.append(rosterForm(reviewers));
+      else content.append(el("p", "사용자·권한에서 같은 기관의 실습지도자 또는 기관관리자를 활성화해 주세요.", "pr-note"));
+      if (!roster.length) return content;
       content.append(table(["실습생", "연결 이메일", "지도자", "접속 상태"], roster, person => [
         person.name, person.email, person.reviewer_name || reviewers.find(r => r.id === person.reviewer_id)?.label, badge(person.account)
       ]));
       const available = roster.filter(p => p.practice_status !== "completed");
       if (!available.length || !reviewers.length) {
-        content.append(el("p", reviewers.length ? "초대할 수 있는 진행 중·예정 실습생이 없습니다." :
-          "사용자·권한에서 같은 기관의 실습지도자 또는 기관관리자를 활성화해 주세요.", "pr-note"));
+        if (reviewers.length) content.append(el("p", "초대할 수 있는 진행 중·예정 실습생이 없습니다.", "pr-note"));
         return content;
       }
-      const person = select(available.map(p => [p.id, p.name]), state.link?.person);
+      const person = select(available.map(p => [p.id, p.name]), state.link?.person || state.invitee);
       const email = input("email");
       email.required = true;
       email.maxLength = 254;
@@ -204,6 +330,7 @@
         if (linkResult.hidden) linkResult.replaceChildren();
       }
       person.addEventListener("change", () => {
+        state.invitee = person.value;
         state.link = null;
         sync();
         say("");
@@ -324,10 +451,10 @@
     }
 
     function reports() {
-      const { roster, templates, today, items } = state.board;
+      const { roster, templates, today, assignments } = state.board;
       const person = select([["", "차수 전체"], ...roster.map(p => [p.id, p.name])]);
       const type = select(templates.map(t => [t.code, t.title]));
-      const due = input("datetime-local", today + "T18:00");
+      const due = input("datetime-local", (cohort.end_date || today) + "T18:00");
       due.required = true;
       const instructions = el("textarea");
       instructions.maxLength = 2000;
@@ -341,10 +468,9 @@
       }, control));
       form.append(layout("pr-grid", field("제출 대상", person), field("보고서 양식", type), field("제출기한 (한국시간)", due)),
         field("작성 안내", instructions), submit);
-      const existing = [...new Map(items.filter(i => i.assignment_id).map(i => [i.assignment_id, i])).values()];
       const content = panel(el("h3", "보고서 양식과 제출기한"),
         el("p", "차수 공통 또는 실습생 개인에게 배정합니다. 같은 양식과 대상을 다시 저장하면 제출기한과 작성 안내가 갱신됩니다.", "pr-muted"), form);
-      if (existing.length) content.append(table(["배정 대상", "보고서", "제출기한"], existing, report =>
+      if (assignments.length) content.append(table(["배정 대상", "보고서", "제출기한"], assignments, report =>
         [report.individual ? report.person_name : "차수 전체", report.title, dateLabel(report.due_at)]));
       return content;
     }
@@ -358,5 +484,5 @@
       }
     });
   }
-  window.EorapPracticumReview = { mount };
+  window.EorapPracticumReview = { mount, create };
 })();
