@@ -124,10 +124,7 @@
   }
 
   function reviewerInput(reviewers) {
-    const options = reviewers.length === 1 ? [] : [["", "선택"]];
-    const control = select([...options, ...reviewers.map(row => [row.id, row.label])]);
-    control.required = true;
-    return control;
+    return select([["", "추후 지정"], ...reviewers.map(row => [row.id, row.label])]);
   }
 
   function submitForm(title, action) {
@@ -185,7 +182,7 @@
     let accepted = [];
     const { form, submit } = submitForm("확인한 명단 등록", control => run(async () => {
       if (!accepted.length) throw new Error("등록할 명단을 확인해 주세요.");
-      await save(accepted, reviewer.value);
+      await save(accepted, reviewer.value || null);
     }, control));
     submit.disabled = true;
 
@@ -256,5 +253,5 @@
     return form;
   }
 
-  window.EorapPracticumRoster = { directForm, excelForm };
+  window.EorapPracticumRoster = { directForm, excelForm, reviewerInput };
 })();

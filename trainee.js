@@ -27,27 +27,42 @@
   }
   function login() {
     controls.hidden = true;
-    const email = input("email");
-    email.autocomplete = "username";
-    email.required = true;
-    email.maxLength = 254;
+    const loginId = input("text");
+    loginId.autocomplete = "username";
+    loginId.autocapitalize = "none";
+    loginId.spellcheck = false;
+    loginId.required = true;
+    loginId.maxLength = 254;
     const password = input("password");
     password.autocomplete = "current-password";
     password.required = true;
     const signIn = el("button", "로그인", "pr-btn pr-primary");
     signIn.type = "submit";
     const form = el("form");
-    form.append(field("실습생 이메일", email), field("비밀번호", password), signIn);
+    form.append(field("이메일 또는 휴대전화 번호", loginId), field("비밀번호", password), signIn);
     form.addEventListener("submit", event => {
       event.preventDefault();
       run(async () => {
-        const result = await state.db.auth.signInWithPassword({ email: email.value.trim(), password: password.value });
-        if (result.error) throw new Error("로그인 정보를 확인해 주세요. 비밀번호 재설정 링크는 기관 실습담당자에게 요청할 수 있습니다.");
+        const identifier = loginId.value.trim();
+        if (identifier.includes("@")) {
+          const result = await state.db.auth.signInWithPassword({ email: identifier, password: password.value });
+          if (result.error) throw new Error("로그인 정보를 확인해 주세요. 비밀번호 재설정 링크는 기관 실습담당자에게 요청할 수 있습니다.");
+        } else {
+          const {data, error} = await state.db.functions.invoke("practicum-phone-login", {
+            body: { phone: identifier, password: password.value }
+          });
+          if (error || !data?.access_token || !data?.refresh_token)
+            throw new Error("휴대전화 번호 또는 비밀번호를 확인해 주세요.");
+          const session = await state.db.auth.setSession({
+            access_token: data.access_token, refresh_token: data.refresh_token
+          });
+          if (session.error) throw new Error("로그인하지 못했습니다. 다시 시도해 주세요.");
+        }
         await connected();
       }, signIn);
     });
     const card = panel(el("h1", "실습생 로그인"),
-      el("p", "처음 접속하는 경우 기관 실습담당자가 전달한 링크에서 비밀번호를 설정해 주세요.", "pr-muted"), form);
+      el("p", "처음에는 기관 담당자가 전달한 이메일 초대 링크에서 비밀번호를 설정하세요. 가입 후에는 이메일이나 등록된 휴대전화 번호로 로그인할 수 있습니다.", "pr-muted"), form);
     card.classList.add("pr-start");
     show(card);
   }

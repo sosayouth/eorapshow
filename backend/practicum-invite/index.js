@@ -23,7 +23,7 @@ Deno.serve(async request => {
     const { personId, email, reviewerId } = await request.json();
     const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
     if (typeof personId !== "string" || !uuid.test(personId) ||
-      typeof reviewerId !== "string" || !uuid.test(reviewerId) ||
+      (reviewerId != null && (typeof reviewerId !== "string" || !uuid.test(reviewerId))) ||
       typeof email !== "string" || email.length > 254)
       return reply(400, { error: "실습생 이메일과 지도자를 확인해 주세요." });
 
@@ -33,7 +33,7 @@ Deno.serve(async request => {
     const permission = await fetch(api + "/rest/v1/rpc/practicum_issue_invite", {
       method: "POST",
       headers: { apikey: anon, authorization, "content-type": "application/json" },
-      body: JSON.stringify({ p_person: personId, p_email: email, p_reviewer: reviewerId })
+      body: JSON.stringify({ p_person: personId, p_email: email, p_reviewer: reviewerId ?? null })
     });
     if (!permission.ok) {
       const error = await permission.json().catch(() => ({}));

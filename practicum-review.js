@@ -271,7 +271,7 @@
     }
 
     async function registerStudents(rows, reviewer) {
-      const result = await rpc(db, "register_roster", { p_cohort: cohort.id, p_reviewer: reviewer, p_rows: rows });
+      const result = await rpc(db, "register_roster", { p_cohort: cohort.id, p_reviewer: reviewer || null, p_rows: rows });
       state.rosterText = "";
       await fetchBoard();
       say(result.added + "명을 등록했습니다. 기존 등록 " + result.existing + "명은 건너뛰었습니다. 명단에서 초대할 실습생을 선택해 주세요.");
@@ -343,9 +343,7 @@
       area.required = true;
       area.placeholder = "김실습, trainee@example.com";
       area.addEventListener("input", () => { state.rosterText = area.value; });
-      const choices = reviewers.length === 1 ? [] : [["", "선택"]];
-      const reviewer = select([...choices, ...reviewers.map(row => [row.id, row.label])]);
-      reviewer.required = true;
+      const reviewer = window.EorapPracticumRoster.reviewerInput(reviewers);
       const { form, submit } = formSubmit("명단 등록", control => run(async () => {
         const rows = parseRoster(area.value);
         if (!rows.length) throw new Error("등록할 실습생 명단을 입력해 주세요.");
@@ -361,24 +359,26 @@
       const { roster, reviewers } = state.board;
       const content = panel(el("h3", "실습생 계정과 지도자"),
         el("p", "개인 또는 학교 이메일로 링크를 발급해 해당 실습생에게 직접 전달합니다. 재발급 링크에서도 비밀번호를 설정할 수 있습니다.", "pr-muted"));
-      if (reviewers.length || state.rosterProfile) content.append(registrationPanel(roster, reviewers));
-      else content.append(el("p", "사용자·권한에서 같은 기관의 실습지도자 또는 기관관리자를 활성화해 주세요.", "pr-note"));
+      content.append(registrationPanel(roster, reviewers));
       if (!roster.length) return content;
       content.append(table(["실습생", "연결 이메일", "지도자", "접속 상태", "기본정보"], roster, person => [
-        person.name, person.email, person.reviewer_name || reviewers.find(r => r.id === person.reviewer_id)?.label, badge(person.account),
+        person.name, person.email, person.reviewer_id
+          ? person.reviewer_name || reviewers.find(r => r.id === person.reviewer_id)?.label || "지정됨"
+          : "추후 지정", badge(person.account),
         button("기본정보 수정", event => run(() => editProfile(person), event.currentTarget))
       ]));
-      const available = roster.filter(p => p.practice_status !== "completed");
-      if (!available.length || !reviewers.length) {
-        if (reviewers.length) content.append(el("p", "초대할 수 있는 진행 중·예정 실습생이 없습니다.", "pr-note"));
-        return content;
-      }
-      const person = select(available.map(p => [p.id, p.name]), state.link?.person || state.invitee);
+      const person = select(roster.map(p => [p.id, p.name]), state.link?.person || state.invitee);
       const email = input("email");
       email.required = true;
       email.maxLength = 254;
-      const reviewer = select([["", "선택"], ...reviewers.map(p => [p.id, p.label])]);
-      reviewer.required = true;
+      const reviewer = window.EorapPracticumRoster.reviewerInput(reviewers);
+      const saveReviewer = button("지도자 지정 저장", event => run(async () => {
+        const personId = person.value;
+        await rpc(db, "assign_reviewer", { p_cohort: cohort.id, p_person: personId, p_reviewer: reviewer.value || null });
+        state.invitee = personId;
+        await fetchBoard();
+        say("실습지도자 지정을 저장했습니다.");
+      }, event.currentTarget));
       const disable = button("접근 중지", event => run(async () => {
         if (!window.confirm("이 실습생의 접속을 중지하시겠습니까? 작성 기록은 보관됩니다.")) return;
         await rpc(db, "revoke", { p_person: person.value });
@@ -387,13 +387,16 @@
         say("실습생의 접속을 중지했습니다.");
       }, event.currentTarget));
       const linkResult = layout("pr-note");
-      const current = () => available.find(p => p.id === person.value);
+      const current = () => roster.find(p => p.id === person.value);
       function sync() {
         const selected = current();
         email.value = selected.email || "";
         email.readOnly = ["active", "revoked"].includes(selected.account) && !!selected.email;
-        reviewer.value = selected.reviewer_id || "";
-        disable.hidden = !["active", "invited"].includes(selected.account);
+        reviewer.value = reviewers.some(item => item.id === selected.reviewer_id) ? selected.reviewer_id : "";
+        saveReviewer.hidden = selected.account === "unlinked";
+        submit.hidden = selected.practice_status === "completed";
+        submit.disabled = email.disabled = submit.hidden;
+        disable.hidden = submit.hidden || !["active", "invited"].includes(selected.account);
         linkResult.hidden = state.link?.person !== selected.id;
         if (linkResult.hidden) linkResult.replaceChildren();
       }
@@ -406,7 +409,7 @@
       const { form, submit } = formSubmit("초대·재설정 링크 발급", control => run(async () => {
         const personId = person.value;
         const { data, error } = await db.functions.invoke("practicum-invite", {
-          body: { personId, email: email.value.trim(), reviewerId: reviewer.value }
+          body: { personId, email: email.value.trim(), reviewerId: reviewer.value || null }
         });
         if (error) {
           const details = await error.context?.json?.().catch(() => null);
@@ -434,7 +437,7 @@
         }, event.currentTarget)));
       }
       form.append(layout("pr-grid", field("실습생 선택", person), field("실습생 이메일", email), field("실습지도자", reviewer)),
-        layout("pr-row", submit, disable), linkResult);
+        layout("pr-row", submit, saveReviewer, disable), linkResult);
       content.append(form);
       return content;
     }
