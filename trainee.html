@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>어랍쇼 | 실습생 공간</title>
+  <link rel="stylesheet" href="practicum.css?v=1">
+  <style>
+    *,::before,::after { box-sizing:border-box; }
+    body { margin:0; color:#172d32; background:#f2f6f4; font:16px/1.62 system-ui,"Malgun Gothic",sans-serif; }
+    main:focus { outline:none; }
+    @media print { body { background:#fff; } }
+  </style>
+  <script defer src="supabase-config.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2"></script>
+  <script defer src="practicum-ui.js?v=1"></script>
+  <script defer src="trainee.js?v=1"></script>
+</head>
+<body class="pr-app">
+  <header class="pr-header">
+    <div class="pr-header-inner pr-row pr-between">
+      <a class="pr-brand" href="./">어랍쇼<small>실습생 공간</small></a>
+      <div class="pr-row" id="trainee-session" hidden>
+        <button type="button" class="pr-btn" id="trainee-password">비밀번호 변경</button>
+        <button type="button" class="pr-btn" id="trainee-logout">로그아웃</button>
+      </div>
+    </div>
+  </header>
+  <main class="pr-shell" id="trainee-main" tabindex="-1">
+    <p id="trainee-notice" hidden></p>
+    <div id="trainee-content" aria-busy="true">
+      <p class="pr-start" role="status">실습생 공간을 불러오고 있습니다.</p>
+    </div>
+    <noscript><p>실습생 공간을 사용하려면 브라우저에서 자바스크립트를 켜 주세요.</p></noscript>
+  </main>
+</body>
+</html>

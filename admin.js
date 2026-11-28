@@ -202,9 +202,13 @@
   }
   function cohortView(box){
     toolbar(box,"실습 차수",()=>openEditor("cohorts"));
-    table(box,["기관","연도","차수","시작일","종료일","관리"],state.rows,c=>
-      [centerName(c.institution_id),c.year,c.name,c.start_date||"—",c.end_date||"—",
-        canEdit()?actions(()=>openEditor("cohorts",c)):"조회 전용"]);
+    table(box,["기관","연도","차수","시작일","종료일","관리"],state.rows,c=>{
+      const settings=canEdit()?actions(()=>openEditor("cohorts",c)):"조회 전용";
+      if(canEdit()&&window.EorapPracticumReview)settings.append(button("제출 검토",()=>{
+        window.EorapPracticumReview.mount({db:state.db,box,cohort:c,onBack:load});
+      }));
+      return [centerName(c.institution_id),c.year,c.name,c.start_date||"—",c.end_date||"—",settings];
+    });
   }
   async function staffView(box){
     if(!canManage())return;

@@ -1,0 +1,51 @@
+:root { --pr-ink: #172d32; --pr-muted: #50646a; --pr-accent: #145d52; --pr-edge: #ccdcd7; --pr-fill: #edf5f1; }
+.pr-shell, .pr-app { color: var(--pr-ink); }
+.pr-shell { max-width: 1160px; margin: 0 auto; padding: 26px 20px 58px; }
+.pr-shell h1, .pr-shell h2, .pr-panel h2, .pr-panel h3 { line-height: 1.28; margin: 0 0 10px; }
+.pr-header { background: #fff; border-bottom: 1px solid var(--pr-edge); }
+.pr-header-inner { max-width: 1160px; margin: 0 auto; padding: 14px 20px; }
+.pr-brand { color: var(--pr-accent); font-size: 1.3rem; font-weight: 800; text-decoration: none; }
+.pr-brand small { display: block; color: var(--pr-muted); font-weight: 550; font-size: .78rem; }
+.pr-start { max-width: 560px; margin: min(10vw, 60px) auto; }
+.pr-panel { border: 1px solid var(--pr-edge); border-radius: 14px; padding: clamp(16px, 3vw, 28px); margin: 0 0 16px; background: #fff; }
+.pr-panel p { margin: 0 0 14px; }
+.pr-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pr-between { justify-content: space-between; }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,230px),1fr)); gap: 14px; }
+.pr-field { display: flex; flex-direction: column; gap: 5px; margin: 0 0 12px; color: var(--pr-ink); font-weight: 650; }
+.pr-field :is(input,select,textarea), .pr-input { display: block; min-width: 0; width: 100%; padding: 10px 11px; border: 1px solid #a8beb7; border-radius: 8px; background: #fff; color: var(--pr-ink); font: inherit; font-weight: 400; }
+.pr-field textarea { min-height: 96px; resize: vertical; }
+.pr-note { padding: 10px 13px; background: var(--pr-fill); border-radius: 8px; color: var(--pr-accent); margin: 8px 0 14px; }
+.pr-alert { background: #fff1ed; color: #8f321c; border-radius: 8px; padding: 10px 13px; }
+.pr-muted { color: var(--pr-muted); }
+.pr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 12px; min-height: 40px; border: 1px solid #abc5bb; border-radius: 8px; color: var(--pr-accent); background: #fff; font: inherit; font-weight: 680; cursor: pointer; text-decoration: none; line-height: 1.35; }
+.pr-btn:hover { background: var(--pr-fill); }
+.pr-btn:disabled { opacity: .55; cursor: wait; }
+.pr-primary, .pr-primary:hover { background: var(--pr-accent); color: #fff; }
+.pr-app :focus-visible, .pr-header :focus-visible, .pr-shell :focus-visible { outline: 3px solid #c07b20; outline-offset: 2px; }
+.pr-nav { margin: 18px 0; }
+.pr-table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+.pr-table th, .pr-table td { text-align: left; vertical-align: middle; padding: 9px 10px; border-bottom: 1px solid var(--pr-edge); }
+.pr-table th { background: var(--pr-fill); }
+.pr-scroll { overflow-x: auto; }
+.pr-card { border: 1px solid var(--pr-edge); border-radius: 10px; padding: 13px; margin: 0 0 9px; }
+.pr-card .pr-card-title { font-weight: 720; margin: 0; }
+.pr-badge { display: inline-block; white-space: nowrap; font-size: .82rem; padding: 3px 9px; border-radius: 999px; background: #eef2f3; color: #40575d; }
+.pr-badge[data-state="submitted"], .pr-badge[data-state="reviewed"], .pr-badge[data-state="active"] { background: var(--pr-fill); color: var(--pr-accent); }
+.pr-badge[data-state="changes"], .pr-badge[data-state="revoked"] { background: #fdefe6; color: #86391f; }
+.pr-detail { margin: 12px 0; }
+.pr-detail summary { cursor: pointer; font-weight: 650; }
+.pr-body-field { margin: 10px 0; padding: 8px 0; border-bottom: 1px solid var(--pr-edge); }
+.pr-body-field h3 { font-size: 1rem; }
+.pr-safe-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pr-stat { background: var(--pr-fill); border-radius: 10px; padding: 13px; margin: 0; }
+.pr-stat strong { display: block; font-size: 1.14rem; color: var(--pr-accent); }
+.pr-print-only { display: none; }
+.pr-app [hidden], .pr-shell [hidden], .pr-header [hidden] { display: none !important; }
+@media print {
+  body.pr-printing > :not(.pr-print-only) { display: none !important; }
+  body.pr-printing > .pr-print-only { display: block; color: #000; font: 11pt/1.55 system-ui, sans-serif; }
+  .pr-print-only h1 { font-size: 18pt; margin-bottom: 12pt; }
+  .pr-print-only .pr-body-field { break-inside: avoid-page; border-bottom: 1px solid #bbb; }
+  @page { margin: 16mm; }
+}
